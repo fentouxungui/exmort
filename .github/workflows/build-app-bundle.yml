@@ -92,6 +92,10 @@ jobs:
           r-version: ${{ env.R_VERSION }}
           use-public-rspm: true
 
+      - uses: r-lib/actions/setup-pandoc@v2
+        with:
+          pandoc-version: "3.1.11"
+
       - name: Verify report toolchain
         shell: bash
         run: |
