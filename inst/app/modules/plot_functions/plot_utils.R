@@ -405,24 +405,34 @@ create_mortality_plot <- function(data, plot_type = c("ACM", "ED_bar", "ED_line"
                          ED_line = em_tr("Excess Deaths"),
                          EP_bar = em_tr("P-Score (%)"),
                          EP_line = em_tr("P-Score (%)")),
-          range = c(y_min, y_max)
+          range = c(y_min, y_max),
+          ticksuffix = if (plot_type %in% c("EP_bar", "EP_line")) "%" else ""
         ),
         shapes = shapes,
         annotations = annotations,
         barmode = if (plot_type %in% c("ED_bar", "EP_bar")) "group" else NULL,
-        legend = list(orientation = "h", y = -0.2),
+        legend = list(
+          orientation = "h",
+          y = -0.2,
+          title = list(text = if (plot_type %in% c("ED_bar", "EP_bar")) em_tr("Model") else em_tr("Series"))
+        ),
         hovermode = "x unified"
       )
 
     return(p)
   } else {
+    # Use the same model order as the interactive plotly traces.
+    selected_models <- as.character(unique(data$Model))
+    selected_models <- selected_models[selected_models %in% names(model_colors)]
+    data$Model <- factor(data$Model, levels = selected_models)
+
     # 创建 ggplot2 图表（保持不变）
     p <- ggplot(data, aes(x = TimePoint))
 
     if (plot_type == "ACM") {
       p <- p +
-        geom_line(aes(y = NO_DEATHS, color = "Recorded"), linewidth = 1) +
-        geom_line(aes(y = EXP_DEATHS, color = Model, linetype = Model), linewidth = 0.8)
+        geom_line(aes(y = NO_DEATHS, color = "Recorded"), linewidth = 2) +
+        geom_line(aes(y = EXP_DEATHS, color = Model, linetype = Model), linewidth = 1.5)
       if (has_ci) {
         p <- p +
           geom_ribbon(aes(ymin = LOWER_LIMIT, ymax = UPPER_LIMIT, fill = Model), alpha = 0.2)
@@ -435,7 +445,7 @@ create_mortality_plot <- function(data, plot_type = c("ACM", "ED_bar", "ED_line"
       bar_w <- period_days * 0.8
       p <- p +
         geom_col(aes(y = if (plot_type == "ED_bar") EXCESS_DEATHS else P_SCORE, fill = Model),
-                 position = position_dodge(width = bar_w), width = bar_w, alpha = 0.7)
+                 position = position_dodge(width = bar_w), width = bar_w)
       if (has_ci) {
         p <- p +
           geom_errorbar(aes(ymin = if (plot_type == "ED_bar") EXCESS_LOWER else P_SCORE_LOWER,
@@ -445,7 +455,7 @@ create_mortality_plot <- function(data, plot_type = c("ACM", "ED_bar", "ED_line"
       p <- p + geom_hline(yintercept = 0, linetype = "dashed", color = "black")
     } else if (plot_type %in% c("ED_line", "EP_line")) {
       p <- p +
-        geom_line(aes(y = if (plot_type == "ED_line") EXCESS_DEATHS else P_SCORE, color = Model, linetype = Model), linewidth = 1)
+        geom_line(aes(y = if (plot_type == "ED_line") EXCESS_DEATHS else P_SCORE, color = Model, linetype = Model), linewidth = 2)
       if (has_ci) {
         p <- p +
           geom_ribbon(aes(ymin = if (plot_type == "ED_line") EXCESS_LOWER else P_SCORE_LOWER,
@@ -455,21 +465,35 @@ create_mortality_plot <- function(data, plot_type = c("ACM", "ED_bar", "ED_line"
       p <- p + geom_hline(yintercept = 0, linetype = "dashed", color = "black")
     }
 
-    # 添加事件矩形和标签
+    # 添加事件矩形和标签。Event fills are drawn with their own fixed
+    # colours; they must not add a second ggplot fill scale, which would
+    # replace the model fill scale and change the PDF colours/legend.
     if (!is.null(event_data) && nrow(event_data) > 0) {
+      for (i in seq_len(nrow(event_data))) {
+        event_color <- event_colors[((i - 1) %% length(event_colors)) + 1]
+        p <- p +
+          geom_rect(
+            data = event_data[i, , drop = FALSE],
+            aes(xmin = start_time, xmax = end_time, ymin = y_min, ymax = y_max),
+            fill = event_color,
+            alpha = 0.08,
+            inherit.aes = FALSE
+          )
+      }
       p <- p +
-        geom_rect(
-          data = event_data,
-          aes(xmin = start_time, xmax = end_time, ymin = y_min, ymax = y_max, fill = event_name),
-          alpha = 0.08,
-          inherit.aes = FALSE
-        ) +
         geom_text(
           data = event_data,
           aes(x = start_time + (end_time - start_time) / 2, y = y_max * 0.95, label = event_name),
           hjust = 0.5, vjust = -0.5, size = 3, color = "darkred"
-        ) +
-        scale_fill_brewer(name = em_tr("Events"), palette = "Set3")
+        )
+    }
+
+    fill_name <- if (plot_type %in% c("ED_bar", "EP_bar")) em_tr("Model") else interval_label
+    fill_guide <- if (plot_type %in% c("ED_bar", "EP_bar")) "legend" else "none"
+    color_labels <- if (plot_type == "ACM") {
+      function(x) ifelse(x == "Recorded", em_tr("Recorded"), paste(em_tr(x), em_tr("Expected")))
+    } else {
+      em_tr
     }
 
     # 添加轴和主题
@@ -479,29 +503,36 @@ create_mortality_plot <- function(data, plot_type = c("ACM", "ED_bar", "ED_line"
         limits = c(y_min, y_max),
         labels = if (plot_type %in% c("EP_bar", "EP_line")) scales::percent_format(scale = 1) else scales::number_format(big.mark = ",")
       ) +
-      scale_color_manual(name = em_tr("Series"), labels = em_tr, values = c("Recorded" = "black", model_colors), breaks = c("Recorded", names(model_colors))) +
-      scale_fill_manual(name = interval_label, labels = em_tr, values = model_colors, breaks = names(model_colors)) +
+      scale_color_manual(
+        name = em_tr("Series"),
+        labels = color_labels,
+        values = c("Recorded" = "black", model_colors),
+        breaks = if (plot_type == "ACM") c("Recorded", selected_models) else selected_models
+      ) +
+      scale_fill_manual(
+        name = fill_name,
+        labels = em_tr,
+        values = model_colors,
+        breaks = selected_models,
+        guide = fill_guide
+      ) +
       scale_linetype_manual(
         name = "Series",
-        values = c(
-          "Historical Average" = "dashed",
-          "Negative Binomial Regression" = "dotted",
-          "Quasi-Poisson Model" = "longdash",
-          "Zero Inflated Poisson Model" = "twodash",
-          "BSTS Model" = "solid",
-          "State Space Model" = "solid",
-          "ARIMA/SARIMA Model" = "solid",
-          "Historical Average and Trend Model" = "dotdash"
-        ),
+        values = {
+          lt <- stats::setNames(rep("dotted", length(selected_models)), selected_models)
+          lt["Historical Average"] <- "dashed"
+          lt["Historical Average and Trend Model"] <- "dotdash"
+          lt
+        },
         guide = "none"
       ) +
-      labs(title = title, subtitle = subtitle, caption = ci_caption, x = em_tr("Time"), y = switch(plot_type, ACM = em_tr("Number of Deaths"), ED_bar = em_tr("Excess Deaths"), ED_line = em_tr("Excess Deaths"), EP_bar = em_tr("P-Score (%)"), EP_line = em_tr("P-Score (%)"))) +
+      labs(title = title, subtitle = subtitle, x = em_tr("Time"), y = switch(plot_type, ACM = em_tr("Number of Deaths"), ED_bar = em_tr("Excess Deaths"), ED_line = em_tr("Excess Deaths"), EP_bar = em_tr("P-Score (%)"), EP_line = em_tr("P-Score (%)"))) +
       theme_wpro() +
       theme(
         axis.text.x = element_text(angle = 45, hjust = 1),
         legend.position = "bottom",
-        plot.title = element_text(size = 12, face = "bold"),
-        plot.subtitle = element_text(size = 10)
+        plot.title = element_text(size = 16, face = "bold"),
+        plot.subtitle = element_text(size = 12)
       )
 
     return(p)
