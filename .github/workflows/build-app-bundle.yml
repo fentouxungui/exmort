@@ -28,9 +28,11 @@
 # =====================================================================
 name: Build app bundle
 
+# The standard workflow is release-only: publish a GitHub Release to build.
+# A tag push alone no longer triggers this workflow.
 on:
-  push:
-    tags: ['v*']
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       tag:
@@ -58,14 +60,14 @@ env:
   DEMO_OBJECT: ""
   DEMO_SAVE_AS: ""
   DEMO_RDATA: ""
-  EXTRA_PKGS: ""
+  EXTRA_PKGS: "officedown"
   EXCLUDE: "rsconnect,.github"
   ARCHIVE_URLS: ""
   EXTRA_REPOS: ""
   SOFT_PKGS: ""
   SOURCE_REBUILD: "gdtools"
   PREFETCH_SCRIPT: ""
-  APP_NOTES: "Report rendering requires Pandoc (checked at build time). PDF output additionally requires a LaTeX installation (not bundled)."
+  APP_NOTES: "HTML/Word reports use the Pandoc binary bundled with the app (Word also uses officedown). PDF output additionally requires a LaTeX installation, which is not bundled."
   MAX_REQUEST_MB: "1024"
   SMOKE: "on"
   SMOKE_TIMEOUT_SEC: "300"
@@ -84,13 +86,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ github.event.inputs.tag || github.ref }}
           fetch-depth: 0
 
       - uses: r-lib/actions/setup-r@v2
         with:
           r-version: ${{ env.R_VERSION }}
-          use-public-rspm: true
+          use-public-rspm: false
 
       - uses: r-lib/actions/setup-pandoc@v2
         with:
@@ -107,25 +109,43 @@ jobs:
 
       - name: Install build helpers
         shell: bash
-        run: Rscript -e 'install.packages(c("jsonlite","zip","digest","BiocManager","callr","curl"), repos="https://cloud.r-project.org")'
+        run: |
+          Rscript -e '
+            snap <- Sys.getenv("CRAN_SNAPSHOT")
+            cran <- if (nzchar(snap)) sprintf("https://packagemanager.posit.co/cran/%s", snap) else "https://cloud.r-project.org"
+            install.packages(c("jsonlite","zip","digest","BiocManager","callr","curl","httpuv"), repos = cran)
+          '
 
       - name: Resolve and validate version
         shell: bash
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          V="${{ inputs.tag || github.ref_name }}"
+          V="${INPUT_TAG:-${RELEASE_TAG:-}}"
           V="${V#v}"
           if [ -z "$V" ]; then
             echo "::error::cannot resolve version from tag"
             exit 1
           fi
+          TAG="v$V"
+          if ! git rev-parse --verify "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "::error::tag $TAG does not exist in this checkout"
+            exit 1
+          fi
+          TAG_COMMIT="$(git rev-parse "$TAG^{commit}")"
+          HEAD_COMMIT="$(git rev-parse HEAD)"
+          if [ "$TAG_COMMIT" != "$HEAD_COMMIT" ]; then
+            echo "::error::checked-out commit $HEAD_COMMIT does not match $TAG ($TAG_COMMIT)"
+            exit 1
+          fi
           echo "VERSION=$V" >> "$GITHUB_ENV"
-          echo "TAG=v$V" >> "$GITHUB_ENV"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "SOURCE_COMMIT=$HEAD_COMMIT" >> "$GITHUB_ENV"
+          echo "building $TAG at $HEAD_COMMIT"
 
       - name: Assemble bundle (app/ + rlib/ + manifest.json)
         shell: Rscript {0}
-        env:
-          GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           app_id  <- Sys.getenv("APP_ID")
           mode    <- Sys.getenv("APP_MODE"); if (!nzchar(mode)) mode <- "auto"
@@ -203,9 +223,14 @@ jobs:
           cat("mode:", mode, "| seed:", paste(sort(seed), collapse = ", "), "\n")
 
           er <- split_pkgs(Sys.getenv("EXTRA_REPOS"))
+          if (length(er)) stop("EXTRA_REPOS is not allowed with a pinned CRAN snapshot; use a pinned repository instead")
           snap <- Sys.getenv("CRAN_SNAPSHOT")
           cran <- if (nzchar(snap)) sprintf("https://packagemanager.posit.co/cran/%s", snap) else "https://cloud.r-project.org"
-          repos <- unique(c(er, cran, BiocManager::repositories())); options(repos = repos)
+          bioc <- BiocManager::repositories()
+          if (!is.null(names(bioc))) bioc <- bioc[!grepl("cran", names(bioc), ignore.case = TRUE)]
+          repos <- c(CRAN = cran, bioc)
+          options(repos = repos)
+          cat("CRAN:", cran, "\n")
           db <- available.packages(repos = repos, type = "source")
           soft <- split_pkgs(Sys.getenv("SOFT_PKGS"))
           dropped <- setdiff(seed, rownames(db))
@@ -219,6 +244,20 @@ jobs:
           if (length(closure_missing)) stop("unresolved transitive dependencies: ", paste(closure_missing, collapse = ", "))
           closure <- setdiff(closure_all, base_pkgs)
           cat("closure size:", length(closure), "\n")
+
+          # Write the resolved lock BEFORE installing, then verify the installed
+          # library against it. This is an enforced lock, not an inventory of
+          # whatever install.packages happened to leave behind.
+          platform <- "${{ matrix.platform }}"
+          lock <- data.frame(
+            package = closure,
+            version = unname(db[closure, "Version"]),
+            stringsAsFactors = FALSE
+          )
+          lock <- lock[order(lock$package), , drop = FALSE]
+          lock_file <- sprintf("deps-%s.json", platform)
+          jsonlite::write_json(lock, file.path(root, lock_file), pretty = TRUE, auto_unbox = TRUE)
+          cat("resolved lock:", nrow(lock), "packages ->", lock_file, "\n")
 
           options(pkgType = "both")
           have <- function() basename(list.dirs(lib, recursive = FALSE))
@@ -259,14 +298,23 @@ jobs:
           soft_missing <- setdiff(intersect(soft, seed), c(have(), base_pkgs))
           cat("rlib packages:", length(have()), "| soft missing:", paste(soft_missing, collapse = ","), "\n")
 
+          installed_tbl <- as.data.frame(installed.packages(lib.loc = lib), stringsAsFactors = FALSE)
+          missing_lock <- setdiff(lock$package, installed_tbl$Package)
+          if (length(missing_lock)) stop("resolved lock packages are missing from rlib: ", paste(missing_lock, collapse = ", "))
+          installed_ver <- setNames(installed_tbl$Version, installed_tbl$Package)
+          mismatch <- lock$package[lock$version != installed_ver[lock$package]]
+          if (length(mismatch)) {
+            stop("installed versions do not match the resolved lock: ",
+                 paste(sprintf("%s (lock %s, installed %s)", mismatch,
+                               lock$version[match(mismatch, lock$package)],
+                               installed_ver[mismatch]), collapse = ", "))
+          }
+          extra <- setdiff(installed_tbl$Package, lock$package)
+          if (length(extra)) stop("installed packages are not in the resolved lock: ", paste(extra, collapse = ", "))
+          cat("dependency lock validation OK:", nrow(lock), "packages\n")
+
           entry <- if (file.exists(file.path(appdir, "app.R"))) "app/app.R" else "app/ui.R"
-          pkgs <- as.data.frame(installed.packages(lib.loc = lib), stringsAsFactors = FALSE)
-          platform <- "${{ matrix.platform }}"
-          lock <- data.frame(package = pkgs$Package, version = pkgs$Version, stringsAsFactors = FALSE)
-          lock <- lock[order(lock$package), ]
-          lock_file <- sprintf("deps-%s.json", platform)
-          jsonlite::write_json(lock, file.path(root, lock_file), pretty = TRUE, auto_unbox = TRUE)
-          lock_sha <- digest::digest(file.path(root, lock_file), algo = "sha256", file = TRUE)
+          pkgs <- installed_tbl
           notes <- Sys.getenv("APP_NOTES"); if (length(soft_missing)) notes <- paste0(notes, " Not bundled: ", paste(soft_missing, collapse = ", "), ".")
           man <- list(schema = 1L, id = app_id, name = Sys.getenv("APP_NAME"), version = Sys.getenv("VERSION"),
             author = Sys.getenv("APP_AUTHOR"), description = Sys.getenv("APP_DESC"), homepage = Sys.getenv("APP_HOMEPAGE"),
@@ -274,6 +322,77 @@ jobs:
             r_version = Sys.getenv("R_VERSION"), min_shell_version = "0.1.0", notes = notes,
             packages = lapply(seq_len(nrow(pkgs)), function(i) list(name = pkgs$Package[i], version = pkgs$Version[i], path = file.path("rlib", pkgs$Package[i]), source = "cran")))
           jsonlite::write_json(man, file.path(bundle, "manifest.json"), pretty = TRUE, auto_unbox = TRUE)
+
+      - name: Bundle Pandoc and patch the report environment
+        shell: bash
+        run: |
+          mkdir -p bundle/app/pandoc
+          cp "$(command -v pandoc)" bundle/app/pandoc/
+          ls -l bundle/app/pandoc
+          if [ -f bundle/app/pandoc/pandoc.exe ]; then
+            bundle/app/pandoc/pandoc.exe --version | head -n 1
+          else
+            bundle/app/pandoc/pandoc --version | head -n 1
+          fi
+          # Make rmarkdown::find_pandoc() use the bundled binary without
+          # changing the app source at the release tag.
+          cat > /tmp/exmort-pandoc-env.R <<'EOF'
+          pandoc_dir <- file.path(getwd(), "pandoc")
+          if (dir.exists(pandoc_dir)) {
+            Sys.setenv(RSTUDIO_PANDOC = pandoc_dir)
+            Sys.setenv(PATH = paste(pandoc_dir, Sys.getenv("PATH"), sep = .Platform$path.sep))
+          }
+          EOF
+          cat /tmp/exmort-pandoc-env.R bundle/app/app.R > /tmp/exmort-app.R
+          mv /tmp/exmort-app.R bundle/app/app.R
+          head -n 7 bundle/app/app.R
+
+      - name: Validate dependency closure in isolation
+        shell: Rscript {0}
+        run: |
+          platform <- "${{ matrix.platform }}"
+          lib <- normalizePath(file.path("bundle", "rlib"), winslash = "/", mustWork = TRUE)
+          lock <- jsonlite::fromJSON(sprintf("deps-%s.json", platform))
+          callr::r(
+            function(lib, lock) {
+              .libPaths(c(lib, .Library))
+              stopifnot(identical(normalizePath(.libPaths()[1], winslash = "/", mustWork = TRUE), lib))
+              for (i in seq_len(nrow(lock))) {
+                p <- lock$package[i]
+                loadNamespace(p, lib.loc = lib)
+                got <- as.character(utils::packageVersion(p, lib.loc = lib))
+                if (!identical(got, lock$version[i])) {
+                  stop(sprintf("%s: lock %s, installed %s", p, lock$version[i], got))
+                }
+              }
+              TRUE
+            },
+            args = list(lib = lib, lock = lock),
+            env = c(R_LIBS_USER = "", R_LIBS_SITE = "")
+          )
+          cat("isolated dependency closure OK:", nrow(lock), "packages\n")
+
+      - name: Install functional test dependencies
+        shell: bash
+        run: |
+          Rscript -e '
+            snap <- Sys.getenv("CRAN_SNAPSHOT")
+            cran <- if (nzchar(snap)) sprintf("https://packagemanager.posit.co/cran/%s", snap) else "https://cloud.r-project.org"
+            dir.create("test-lib", showWarnings = FALSE)
+            install.packages(c("testthat", "pkgload", "withr"), lib = "test-lib", repos = cran, dependencies = TRUE)
+          '
+
+      - name: Functional session tests (non-publishing)
+        timeout-minutes: 30
+        shell: bash
+        run: |
+          # Runs the package's testthat suite against the bundle's rlib. These
+          # tests exercise data import, model execution, lazy-loaded plots and
+          # HTML report generation through Shiny testServer sessions.
+          Rscript -e '
+            .libPaths(c("test-lib", "bundle/rlib", .libPaths()))
+            testthat::test_local(reporter = "summary")
+          '
 
       - name: Prefetch first-launch data (optional)
         if: ${{ env.PREFETCH_SCRIPT != '' }}
@@ -315,7 +434,7 @@ jobs:
           meta <- list(
             schema = 1L, app_id = Sys.getenv("APP_ID"), platform = platform,
             version = Sys.getenv("VERSION"), file = out, sha256 = sha, size = sz,
-            source_repository = Sys.getenv("GITHUB_REPOSITORY"), source_commit = Sys.getenv("GITHUB_SHA"),
+            source_repository = Sys.getenv("GITHUB_REPOSITORY"), source_commit = Sys.getenv("SOURCE_COMMIT"),
             source_ref = Sys.getenv("GITHUB_REF"), source_tag = Sys.getenv("TAG"),
             r_version = Sys.getenv("R_VERSION"), cran_snapshot = Sys.getenv("CRAN_SNAPSHOT"),
             pandoc_version = pv, dependency_lock = lock_file, dependency_lock_sha256 = lock_sha,
@@ -324,14 +443,14 @@ jobs:
           jsonlite::write_json(meta, sprintf("meta-%s.json", platform), pretty = TRUE, auto_unbox = TRUE)
           writeLines(sprintf("%s  %s", sha, out), sprintf("meta-%s.sha256", platform))
 
-      - name: Smoke test (launch the bundle like the ShinyApps shell)
+      - name: Smoke test (start the bundle like the ShinyApps shell)
         if: ${{ env.SMOKE != 'off' }}
         timeout-minutes: 12
         shell: Rscript {0}
         run: |
-          # Reproduce the ShinyApps shell's startup: put the bundle's rlib on .libPaths and
-          # load the app from its own directory. Runs in a child process with a hard timeout so
-          # it can never hang, and surfaces the exact R error if the app fails to start.
+          # Reproduce the ShinyApps shell's startup: put the bundle's rlib on
+          # .libPaths, run shiny::runApp(), and request the root page. Runs in
+          # a supervised child process with a hard timeout so it cannot hang.
           app_id <- Sys.getenv("APP_ID"); ver <- Sys.getenv("VERSION"); plat <- "${{ matrix.platform }}"
           zip <- sprintf("%s-%s-%s.zip", app_id, ver, plat)
           if (!file.exists(zip)) stop("smoke: bundle not found: ", zip)
@@ -340,33 +459,45 @@ jobs:
           appdir <- file.path(tmp, "app"); lib <- file.path(tmp, "rlib")
           if (!dir.exists(appdir) || !dir.exists(lib)) stop("smoke: unexpected bundle layout")
           timeout <- suppressWarnings(as.integer(Sys.getenv("SMOKE_TIMEOUT_SEC", "300"))); if (is.na(timeout) || timeout < 30) timeout <- 300
-          cat(sprintf("smoke: loading app '%s' (rlib on .libPaths)\n", app_id))
-          load_app <- function(appdir, lib) {
+          cat(sprintf("smoke: starting app '%s' (rlib on .libPaths)\n", app_id))
+          serve <- function(appdir, lib, port) {
             .libPaths(c(lib, .Library))
-            if (!identical(normalizePath(.libPaths()[1], winslash = "/", mustWork = TRUE),
-                           normalizePath(lib, winslash = "/", mustWork = TRUE))) {
-              stop("smoke: bundle rlib is not first on .libPaths()")
-            }
+            stopifnot(identical(normalizePath(.libPaths()[1], winslash = "/", mustWork = TRUE),
+                                normalizePath(lib, winslash = "/", mustWork = TRUE)))
             allowed <- normalizePath(c(lib, .Library), winslash = "/", mustWork = TRUE)
-            actual <- normalizePath(.libPaths(), winslash = "/", mustWork = FALSE)
-            extra <- setdiff(actual, allowed)
+            extra <- setdiff(normalizePath(.libPaths(), winslash = "/", mustWork = FALSE), allowed)
             if (length(extra)) stop("smoke: unexpected library paths: ", paste(extra, collapse = ", "))
             old <- setwd(appdir); on.exit(setwd(old), add = TRUE)
-            # shinyAppDir reproduces the shell: it handles app.R and legacy
-            # ui.R+server.R (shinyUI/shinyServer) directory apps alike.
-            obj <- tryCatch(shiny::shinyAppDir("."), error = function(e) e)
-            if (inherits(obj, "error")) stop("shinyAppDir failed: ", conditionMessage(obj))
-            if (!inherits(obj, "shiny.appobj")) stop("app did not produce a shiny app object")
-            invisible(TRUE)
+            shiny::runApp(".", port = port, host = "127.0.0.1",
+                          launch.browser = FALSE, quiet = TRUE)
           }
-          res <- tryCatch(callr::r(load_app, args = list(appdir = appdir, lib = lib), timeout = timeout, show = TRUE,
-                                   env = c(R_LIBS_USER = "", R_LIBS_SITE = "")),
-                          error = function(e) e)
-          if (inherits(res, "error")) {
-            cat("\n---- smoke error ----\n"); cat(conditionMessage(res), "\n")
-            stop("smoke test FAILED: the app did not start: ", conditionMessage(res))
+          port <- httpuv::randomPort()
+          proc <- callr::r_bg(serve, args = list(appdir = appdir, lib = lib, port = port),
+                              supervise = TRUE, env = c(R_LIBS_USER = "", R_LIBS_SITE = ""))
+          on.exit(try(proc$kill(), silent = TRUE), add = TRUE)
+          url <- sprintf("http://127.0.0.1:%d/", port)
+          deadline <- Sys.time() + timeout
+          out <- character()
+          repeat {
+            out <- c(out, proc$read_output_lines(), proc$read_error_lines())
+            if (!proc$is_alive()) {
+              cat(paste(out, collapse = "\n"), "\n")
+              stop("smoke test FAILED: the app exited before serving a page")
+            }
+            served <- tryCatch({
+              h <- curl::new_handle(connecttimeout = 5L, timeout = 10L)
+              r <- curl::curl_fetch_memory(url, handle = h)
+              r$status_code == 200L && length(r$content) > 0 &&
+                grepl("<!doctype|<html", rawToChar(r$content), ignore.case = TRUE)
+            }, error = function(e) FALSE)
+            if (isTRUE(served)) break
+            if (Sys.time() >= deadline) {
+              cat(paste(out, collapse = "\n"), "\n")
+              stop("smoke test FAILED: ", url, " did not serve a page within ", timeout, "s")
+            }
+            Sys.sleep(1)
           }
-          cat("SMOKE OK\n")
+          cat("SMOKE OK:", url, "served an HTML page\n")
 
       - uses: actions/upload-artifact@v4
         with:
@@ -379,7 +510,7 @@ jobs:
 
   release:
     needs: bundle
-    if: startsWith(github.ref, 'refs/tags/v') || inputs.tag != ''
+    if: github.event_name == 'release' || github.event.inputs.tag != ''
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -391,11 +522,19 @@ jobs:
       - name: Refuse to overwrite published assets
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         shell: bash
         run: |
-          TAG="${{ inputs.tag || github.ref_name }}"
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            existing="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
+          set -euo pipefail
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          ERR="$(mktemp)"
+          set +e
+          # This job has no checkout: --repo / GH_REPO is required for gh.
+          release_json="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets,name 2>"$ERR")"
+          rc=$?
+          set -e
+          if [ "$rc" -eq 0 ]; then
+            existing="$(printf '%s' "$release_json" | jq -r '.assets[]?.name')"
             for f in artifacts/*; do
               n="$(basename "$f")"
               if printf '%s\n' "$existing" | grep -qxF "$n"; then
@@ -403,15 +542,22 @@ jobs:
                 exit 1
               fi
             done
+          elif grep -qiE 'release not found|HTTP 404' "$ERR"; then
+            echo "release $TAG does not exist yet; the upload step will create it"
+          else
+            echo "::error::could not read release $TAG; refusing to guess"
+            cat "$ERR"
+            exit 1
           fi
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.tag || github.ref_name }}
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          name: ${{ github.event.release.name || github.event.inputs.tag || github.ref_name }}
           files: |
             artifacts/*.zip
             artifacts/*.sha256
             artifacts/meta-*.json
             artifacts/deps-*.json
-          overwrite_assets: false
+          overwrite_files: false
           fail_on_unmatched_files: true
           generate_release_notes: false
