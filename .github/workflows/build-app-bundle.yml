@@ -521,6 +521,49 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
+      - name: Consolidate release metadata
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import datetime, glob, hashlib, json, os
+
+          metas, deps = {}, {}
+          for path in sorted(glob.glob("artifacts/meta-*.json")):
+              platform = os.path.basename(path)[5:-5]
+              metas[platform] = json.load(open(path))
+          for path in sorted(glob.glob("artifacts/deps-*.json")):
+              platform = os.path.basename(path)[5:-5]
+              deps[platform] = json.load(open(path))
+
+          first = next(iter(metas.values()), {})
+          info = {
+              "app_id": first.get("app_id", "exmort"),
+              "version": first.get("version", ""),
+              "source_repository": first.get("source_repository", ""),
+              "source_commit": first.get("source_commit", ""),
+              "generated_at": datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+              "platforms": {
+                  platform: {
+                      "metadata": meta,
+                      "dependencies": deps.get(platform),
+                  }
+                  for platform, meta in metas.items()
+              },
+          }
+          with open("artifacts/build-info.json", "w") as fh:
+              json.dump(info, fh, indent=2)
+              fh.write("\n")
+
+          lines = []
+          for path in sorted(glob.glob("artifacts/*.zip")):
+              digest = hashlib.sha256(open(path, "rb").read()).hexdigest()
+              lines.append(f"{digest}  {os.path.basename(path)}")
+          with open("artifacts/SHA256SUMS", "w") as fh:
+              fh.write("\n".join(lines) + "\n")
+          PY
+          # Keep the per-platform files as workflow artifacts, but publish only
+          # the two bundles plus the consolidated checksum/metadata files.
+          rm -f artifacts/*.sha256 artifacts/meta-*.json artifacts/deps-*.json
       - name: Refuse to overwrite published assets
         env:
           GH_TOKEN: ${{ github.token }}
@@ -557,9 +600,8 @@ jobs:
           name: ${{ github.event.release.name || github.event.inputs.tag || github.ref_name }}
           files: |
             artifacts/*.zip
-            artifacts/*.sha256
-            artifacts/meta-*.json
-            artifacts/deps-*.json
+            artifacts/SHA256SUMS
+            artifacts/build-info.json
           overwrite_files: false
           fail_on_unmatched_files: true
           generate_release_notes: false
