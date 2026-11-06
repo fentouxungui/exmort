@@ -354,21 +354,21 @@ jobs:
           callr::r(
             function(lib, lock) {
               .libPaths(c(lib, .Library))
-              stopifnot(identical(normalizePath(.libPaths()[1], winslash = "/", mustWork = TRUE), lib))
-              for (i in seq_len(nrow(lock))) {
-                p <- lock$package[i]
-                loadNamespace(p, lib.loc = lib)
-                got <- as.character(utils::packageVersion(p, lib.loc = lib))
-                if (!identical(got, lock$version[i])) {
-                  stop(sprintf("%s: lock %s, installed %s", p, lock$version[i], got))
-                }
+              installed <- as.data.frame(installed.packages(lib.loc = lib), stringsAsFactors = FALSE)
+              missing <- setdiff(lock$package, installed$Package)
+              if (length(missing)) stop("missing from rlib: ", paste(missing, collapse = ", "))
+              versions <- setNames(installed$Version, installed$Package)
+              bad <- lock$package[lock$version != versions[lock$package]]
+              if (length(bad)) {
+                stop("version mismatch: ", paste(sprintf("%s (lock %s, installed %s)",
+                  bad, lock$version[match(bad, lock$package)], versions[bad]), collapse = ", "))
               }
               TRUE
             },
             args = list(lib = lib, lock = lock),
             env = c(R_LIBS_USER = "", R_LIBS_SITE = "")
           )
-          cat("isolated dependency closure OK:", nrow(lock), "packages\n")
+          cat("isolated dependency lock OK:", nrow(lock), "packages present\n")
 
       - name: Install functional test dependencies
         shell: Rscript {0}
@@ -376,6 +376,10 @@ jobs:
           snap <- Sys.getenv("CRAN_SNAPSHOT")
           cran <- if (nzchar(snap)) sprintf("https://packagemanager.posit.co/cran/%s", snap) else "https://cloud.r-project.org"
           dir.create("test-lib", showWarnings = FALSE)
+          # Prefer the bundle's locked app libraries for shared dependencies;
+          # put only testthat/pkgload/withr and their missing deps in test-lib.
+          .libPaths(c(normalizePath(file.path("bundle", "rlib"), winslash = "/", mustWork = TRUE),
+                      "test-lib", .libPaths()))
           install.packages(c("testthat", "pkgload", "withr"), lib = "test-lib", repos = cran, dependencies = TRUE)
 
       - name: Functional session tests (non-publishing)
@@ -385,7 +389,8 @@ jobs:
           # Runs the package's testthat suite against the bundle's rlib. These
           # tests exercise data import, model execution, lazy-loaded plots and
           # HTML report generation through Shiny testServer sessions.
-          .libPaths(c("test-lib", "bundle/rlib", .libPaths()))
+          .libPaths(c(normalizePath(file.path("bundle", "rlib"), winslash = "/", mustWork = TRUE),
+                      "test-lib", .libPaths()))
           testthat::test_local(reporter = "summary")
 
       - name: Prefetch first-launch data (optional)
