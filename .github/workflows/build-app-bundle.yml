@@ -82,7 +82,7 @@ jobs:
       matrix:
         include:
           - { os: windows-latest, platform: "win-x64" }
-          - { os: macos-14,       platform: "mac-arm64" }
+          - { os: macos-15,       platform: "mac-arm64" }
     steps:
       - uses: actions/checkout@v4
         with:
@@ -108,13 +108,11 @@ jobs:
           pandoc --version | head -n 1
 
       - name: Install build helpers
-        shell: bash
+        shell: Rscript {0}
         run: |
-          Rscript -e '
-            snap <- Sys.getenv("CRAN_SNAPSHOT")
-            cran <- if (nzchar(snap)) sprintf("https://packagemanager.posit.co/cran/%s", snap) else "https://cloud.r-project.org"
-            install.packages(c("jsonlite","zip","digest","BiocManager","callr","curl","httpuv"), repos = cran)
-          '
+          snap <- Sys.getenv("CRAN_SNAPSHOT")
+          cran <- if (nzchar(snap)) sprintf("https://packagemanager.posit.co/cran/%s", snap) else "https://cloud.r-project.org"
+          install.packages(c("jsonlite","zip","digest","BiocManager","callr","curl"), repos = cran)
 
       - name: Resolve and validate version
         shell: bash
@@ -373,26 +371,22 @@ jobs:
           cat("isolated dependency closure OK:", nrow(lock), "packages\n")
 
       - name: Install functional test dependencies
-        shell: bash
+        shell: Rscript {0}
         run: |
-          Rscript -e '
-            snap <- Sys.getenv("CRAN_SNAPSHOT")
-            cran <- if (nzchar(snap)) sprintf("https://packagemanager.posit.co/cran/%s", snap) else "https://cloud.r-project.org"
-            dir.create("test-lib", showWarnings = FALSE)
-            install.packages(c("testthat", "pkgload", "withr"), lib = "test-lib", repos = cran, dependencies = TRUE)
-          '
+          snap <- Sys.getenv("CRAN_SNAPSHOT")
+          cran <- if (nzchar(snap)) sprintf("https://packagemanager.posit.co/cran/%s", snap) else "https://cloud.r-project.org"
+          dir.create("test-lib", showWarnings = FALSE)
+          install.packages(c("testthat", "pkgload", "withr"), lib = "test-lib", repos = cran, dependencies = TRUE)
 
       - name: Functional session tests (non-publishing)
         timeout-minutes: 30
-        shell: bash
+        shell: Rscript {0}
         run: |
           # Runs the package's testthat suite against the bundle's rlib. These
           # tests exercise data import, model execution, lazy-loaded plots and
           # HTML report generation through Shiny testServer sessions.
-          Rscript -e '
-            .libPaths(c("test-lib", "bundle/rlib", .libPaths()))
-            testthat::test_local(reporter = "summary")
-          '
+          .libPaths(c("test-lib", "bundle/rlib", .libPaths()))
+          testthat::test_local(reporter = "summary")
 
       - name: Prefetch first-launch data (optional)
         if: ${{ env.PREFETCH_SCRIPT != '' }}
@@ -458,6 +452,9 @@ jobs:
           utils::unzip(zip, exdir = tmp)
           appdir <- file.path(tmp, "app"); lib <- file.path(tmp, "rlib")
           if (!dir.exists(appdir) || !dir.exists(lib)) stop("smoke: unexpected bundle layout")
+          # httpuv is part of the app closure (Shiny depends on it); use the
+          # bundle library for the parent process that allocates the port too.
+          .libPaths(c(lib, .libPaths()))
           timeout <- suppressWarnings(as.integer(Sys.getenv("SMOKE_TIMEOUT_SEC", "300"))); if (is.na(timeout) || timeout < 30) timeout <- 300
           cat(sprintf("smoke: starting app '%s' (rlib on .libPaths)\n", app_id))
           serve <- function(appdir, lib, port) {
