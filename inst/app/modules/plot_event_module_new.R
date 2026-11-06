@@ -1,3 +1,4 @@
+source_module("modules/interface_language.R")
 source_module("modules/cause_analysis.R")
 # --- 1. Load Libraries ---
 # Libraries are assumed to be loaded in the main app.R or global.R
@@ -34,7 +35,7 @@ plot_event_module_ui <- function(id) {
                 uiOutput(ns("event_filter_ui")),
                 hr(),
                 h4("Facet Options"),
-                checkboxGroupInput(ns("facet_variables"), "Select Facet Variables (Max 2):",
+                checkboxGroupInput(ns("facet_variables"), em_label("Select Facet Variables (Max 2):"),
                     choices = c("Sex" = "SEX", "Age Group" = "AGE_GROUP","Event" = "event_name", "Model" = "Model"),
                     selected = c("SEX", "AGE_GROUP")
                 ),
@@ -83,7 +84,7 @@ plot_event_module_ui <- function(id) {
 # --- Module Server ---
 plot_event_module_server <- function(id, rv) {
     moduleServer(id, function(input, output, session) {
-      output$analysis_context <- renderText(rv$data_description)
+      output$analysis_context <- renderText(em_context(rv))
         ns <- session$ns # Get the namespace function
 
         # --- Reactive UI for Filters ---
@@ -91,7 +92,7 @@ plot_event_module_server <- function(id, rv) {
             req(rv$summary_by_event)
             unique_sex <- sort(unique(rv$summary_by_event$SEX), na.last = TRUE, decreasing = TRUE)
             default_sex <- if ("Total" %in% unique_sex) "Total" else unique_sex[1]
-            checkboxGroupInput(ns("selected_sex"), "Select Sex:",
+            em_check_filter(ns("selected_sex"), "Select Sex:",
                                choices = unique_sex,
                                selected = default_sex)
         })
@@ -100,7 +101,7 @@ plot_event_module_server <- function(id, rv) {
             req(rv$summary_by_event)
             unique_age_group <- sort(unique(rv$summary_by_event$AGE_GROUP), na.last = TRUE, decreasing = TRUE)
             default_age <- if ("Total" %in% unique_age_group) "Total" else unique_age_group[1]
-            checkboxGroupInput(ns("selected_age_group"), "Select Age Group:",
+            em_check_filter(ns("selected_age_group"), "Select Age Group:",
                                choices = unique_age_group,
                                selected = default_age)
         })
@@ -108,7 +109,7 @@ plot_event_module_server <- function(id, rv) {
         output$model_filter_ui <- renderUI({
             req(rv$summary_by_event)
             unique_models <- sort(unique(rv$summary_by_event$Model))
-            checkboxGroupInput(ns("selected_models"), "Select Models to Display:",
+            em_check_filter(ns("selected_models"), "Select Models to Display:",
                                choices = unique_models,
                                selected = unique_models)
         })
@@ -117,7 +118,7 @@ plot_event_module_server <- function(id, rv) {
             req(rv$summary_by_event)
             unique_events <- sort(unique(rv$summary_by_event$event_name))
             # Add event selection
-            checkboxGroupInput(ns("selected_events"), "Select Events:",
+            checkboxGroupInput(ns("selected_events"), em_label("Select Events:"),
                 choices = unique_events,
                 selected = unique_events
             )
@@ -267,7 +268,7 @@ plot_event_module_server <- function(id, rv) {
             if (is.null(data) || nrow(data) == 0) {
                 message("No data available for plotting (module)")
                 return(ggplot() +
-                    annotate("text", x = 0.5, y = 0.5, label = "No data available for selected filters.") +
+                    annotate("text", x = 0.5, y = 0.5, label = em_tr("No data available for selected filters.")) +
                     theme_void())
             }
             
@@ -284,12 +285,12 @@ plot_event_module_server <- function(id, rv) {
 
             if (!"TOTAL_EXCESS" %in% names(data)) {
                 message("Missing TOTAL_EXCESS column (module)")
-                return(ggplot() + annotate("text", x = 0.5, y = 0.5, label = "TOTAL_EXCESS column missing.") + theme_void())
+                return(ggplot() + annotate("text", x = 0.5, y = 0.5, label = em_tr("TOTAL_EXCESS column missing.")) + theme_void())
             }
             
             has_ci <- "EXCESS_LOWER" %in% names(data) && "EXCESS_UPPER" %in% names(data)
             ci_caption <- if (has_ci) {
-                if (is_cause_series(data)) "Note: Error bars show 95% count prediction intervals." else "Note: Error bars represent 95% confidence intervals."
+                if (is_cause_series(data)) em_tr("Note: Error bars show 95% count prediction intervals.") else em_tr("Note: Error bars represent 95% confidence intervals.")
             } else NULL
             
             message("Starting to create excess plot (module)...")
@@ -310,19 +311,19 @@ plot_event_module_server <- function(id, rv) {
                 data$interaction_group <- interaction(data[x_vars], sep = " - ", drop = TRUE, lex.order = TRUE)
                 p <- ggplot(data, aes(x = interaction_group, y = TOTAL_EXCESS, fill = .data[[primary_inner_var]])) +
                     geom_col(position = position_dodge(width = 0.9), alpha = 0.8)
-                x_label <- paste(gsub("_", " ", x_vars), collapse = " · ")
-                fill_label <- gsub("_", " ", primary_inner_var)
+                x_label <- paste(gsub("_", " ", em_tr(x_vars)), collapse = " · ")
+                fill_label <- gsub("_", " ", em_tr(primary_inner_var))
                 message("Excess: x = [", paste(x_vars, collapse = ", "), "], fill = ", primary_inner_var, " (module)")
             } else if (!is.null(primary_inner_var) && primary_inner_var %in% names(data)) {
                 p <- ggplot(data, aes(x = .data[[primary_inner_var]], y = TOTAL_EXCESS, fill = .data[[primary_inner_var]])) +
                     geom_col(position = position_dodge(width = 0.9), alpha = 0.8)
-                x_label <- gsub("_", " ", primary_inner_var)
-                fill_label <- gsub("_", " ", primary_inner_var)
+                x_label <- gsub("_", " ", em_tr(primary_inner_var))
+                fill_label <- gsub("_", " ", em_tr(primary_inner_var))
                 message("Excess: x = fill = ", primary_inner_var, " (module)")
             } else {
                 p <- ggplot(data, aes(x = factor(1), y = TOTAL_EXCESS)) +
                     geom_col(position = position_dodge(width = 0.9), alpha = 0.8, fill = "steelblue") +
-                    scale_x_discrete(labels = "Total")
+                    scale_x_discrete(labels = em_tr("Total"))
                 message("No grouping variables used (module)")
             }
             
@@ -339,7 +340,7 @@ plot_event_module_server <- function(id, rv) {
                 p <- p + scale_fill_viridis_d(name = fill_label, option = "D", end = 0.92)
             }
             
-            p <- p + labs(title = "Total Excess Deaths", caption = ci_caption, x = x_label, y = "Total Excess Deaths") +
+            p <- p + labs(title = em_tr("Total Excess Deaths"), caption = ci_caption, x = x_label, y = em_tr("Total Excess Deaths")) +
                 theme_wpro() +
                 theme(legend.position = "bottom", axis.text.x = element_text(angle = 45, hjust = 1))
             
@@ -359,20 +360,20 @@ plot_event_module_server <- function(id, rv) {
             
             if (is.null(data) || nrow(data) == 0) {
                 message("No data available for P-Score plotting (module)")
-                return(ggplot() + annotate("text", x = 0.5, y = 0.5, label = "No data available.") + theme_void())
+                return(ggplot() + annotate("text", x = 0.5, y = 0.5, label = em_tr("No data available.")) + theme_void())
             }
             
             # Ensure TOTAL_EXPECTED exists and filter out zero/near-zero values before calculating P_SCORE
             if (!"TOTAL_EXPECTED" %in% names(data) || !"TOTAL_EXCESS" %in% names(data)) {
                  message("Missing TOTAL_EXPECTED or TOTAL_EXCESS column for P-Score (module)")
-                 return(ggplot() + annotate("text", x = 0.5, y = 0.5, label = "Required columns missing for P-Score.") + theme_void())
+                 return(ggplot() + annotate("text", x = 0.5, y = 0.5, label = em_tr("Required columns missing for P-Score.")) + theme_void())
             }
 
             data <- data %>% filter(abs(TOTAL_EXPECTED) > 1e-6) 
             
             if (nrow(data) == 0) {
                 message("No non-zero expected mortality data for P-Score (module)")
-                return(ggplot() + annotate("text", x = 0.5, y = 0.5, label = "No data with non-zero expected mortality.") + theme_void())
+                return(ggplot() + annotate("text", x = 0.5, y = 0.5, label = em_tr("No data with non-zero expected mortality.")) + theme_void())
             }
 
             data <- data %>% mutate(P_SCORE = (TOTAL_EXCESS / TOTAL_EXPECTED) * 100)
@@ -392,14 +393,14 @@ plot_event_module_server <- function(id, rv) {
             ci_caption <- NULL
             if (is_cause_series(data) && all(c("P_LOWER", "P_UPPER") %in% names(data))) {
                 has_ci <- TRUE
-                ci_caption <- "Note: Error bars show 95% P-score intervals based on expected-mean uncertainty."
+                ci_caption <- em_tr("Note: Error bars show 95% P-score intervals based on expected-mean uncertainty.")
             } else if ("EXCESS_LOWER" %in% names(data) && "EXCESS_UPPER" %in% names(data)) {
                 data <- data %>% mutate(
                     P_LOWER = (EXCESS_LOWER / TOTAL_EXPECTED) * 100,
                     P_UPPER = (EXCESS_UPPER / TOTAL_EXPECTED) * 100
                 )
                 has_ci <- TRUE
-                ci_caption <- "Note: Error bars represent 95% confidence intervals for P-Score."
+                ci_caption <- em_tr("Note: Error bars represent 95% confidence intervals for P-Score.")
             }
             
             message("Starting to create P-Score plot (module)...")
@@ -418,19 +419,19 @@ plot_event_module_server <- function(id, rv) {
                 data$interaction_group <- interaction(data[x_vars], sep = " - ", drop = TRUE, lex.order = TRUE)
                 p <- ggplot(data, aes(x = interaction_group, y = P_SCORE, fill = .data[[primary_inner_var]])) +
                     geom_col(position = position_dodge(width = 0.9), alpha = 0.8)
-                x_label <- paste(gsub("_", " ", x_vars), collapse = " · ")
-                fill_label <- gsub("_", " ", primary_inner_var)
+                x_label <- paste(gsub("_", " ", em_tr(x_vars)), collapse = " · ")
+                fill_label <- gsub("_", " ", em_tr(primary_inner_var))
                 message("P-Score: x = [", paste(x_vars, collapse = ", "), "], fill = ", primary_inner_var, " (module)")
             } else if (!is.null(primary_inner_var) && primary_inner_var %in% names(data)) {
                 p <- ggplot(data, aes(x = .data[[primary_inner_var]], y = P_SCORE, fill = .data[[primary_inner_var]])) +
                     geom_col(position = position_dodge(width = 0.9), alpha = 0.8)
-                x_label <- gsub("_", " ", primary_inner_var)
-                fill_label <- gsub("_", " ", primary_inner_var)
+                x_label <- gsub("_", " ", em_tr(primary_inner_var))
+                fill_label <- gsub("_", " ", em_tr(primary_inner_var))
                 message("P-Score: x = fill = ", primary_inner_var, " (module)")
             } else {
                 p <- ggplot(data, aes(x = factor(1), y = P_SCORE)) +
                     geom_col(position = position_dodge(width = 0.9), alpha = 0.8, fill = "steelblue") +
-                    scale_x_discrete(labels = "Total")
+                    scale_x_discrete(labels = em_tr("Total"))
                 message("No grouping variables used (P-Score module)")
             }
             
@@ -448,7 +449,7 @@ plot_event_module_server <- function(id, rv) {
             }
             
             p <- p + scale_y_continuous(labels = scales::percent_format(scale = 1)) +
-                labs(title = "Excess Death P-Score (%)", caption = ci_caption, x = x_label, y = "P-Score") +
+                labs(title = em_tr("Excess Death P-Score (%)"), caption = ci_caption, x = x_label, y = em_tr("P-Score")) +
                 theme_wpro() +
                 theme(legend.position = "bottom", axis.text.x = element_text(angle = 45, hjust = 1))
             
@@ -500,7 +501,7 @@ plot_event_module_server <- function(id, rv) {
             content = function(file) {
                 req(filtered_overall_data())
                 plot_obj <- create_excess_plot(filtered_overall_data())
-                ggsave(file, plot = plot_obj, device = "pdf", width = 12, height = 8, units = "in")
+                ggsave(file, plot = plot_obj, device = em_pdf, width = 12, height = 8, units = "in")
             }
         )
         
@@ -511,7 +512,7 @@ plot_event_module_server <- function(id, rv) {
             content = function(file) {
                 req(filtered_overall_data())
                 plot_obj <- create_pscore_plot(filtered_overall_data())
-                ggsave(file, plot = plot_obj, device = "pdf", width = 12, height = 8, units = "in")
+                ggsave(file, plot = plot_obj, device = em_pdf, width = 12, height = 8, units = "in")
             }
         )
 

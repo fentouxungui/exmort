@@ -36,6 +36,7 @@ exmort_app_dir <- function() {
 app_module_env <- function(modules = character(0),
                            envir = new.env(parent = globalenv())) {
   app <- exmort_app_dir()
+  envir$app_dir <- app
   loaded <- character(0)
 
   # Module files source their own dependencies through source_module(); it has

@@ -1,4 +1,5 @@
 # --- 1. Libraries (shiny is loaded by app.R) ---
+source_module("modules/interface_language.R")
 library(readxl)
 library(knitr)
 library(kableExtra)
@@ -84,7 +85,10 @@ methods_module_server <- function(id, rv) {
     })
 
     output$model_information <- renderTable({
-      model_info
+      info <- model_info
+      info[] <- lapply(info, em_tr)
+      names(info) <- em_tr(names(info))
+      info
     },
     striped  = TRUE,
     hover    = TRUE,

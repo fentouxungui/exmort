@@ -33,6 +33,7 @@ Imports:
     ggrepel,
     htmltools,
     ISOweek,
+    jsonlite,
     kableExtra,
     knitr,
     lubridate,

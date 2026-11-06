@@ -1,3 +1,4 @@
+source_module("modules/interface_language.R")
 source_module("modules/cause_analysis.R")
 # Report Module
 # Generates an in-app HTML preview of the report and renders downloads
@@ -132,6 +133,8 @@ report_module_ui <- function(id) {
           9,
           wellPanel(
             h4("Report Preview"),
+            tags$small(class = "em-chinese-only em-report-language", lang = "zh-CN",
+              em_tr("The report preview and downloads are in English.", "zh-CN")),
             htmlOutput(ns("report_preview"))
           )
         )
@@ -170,7 +173,7 @@ report_module_server <- function(id, rv) {
       output$sex_filter <- renderUI({
         req(rv$overall_summary)
         choices <- unique(rv$overall_summary$SEX)
-        selectInput(session$ns("selected_sex"), "Select Sex:",
+        em_select_filter(session$ns("selected_sex"), "Select Sex:",
           choices = choices,
           selected = if ("Total" %in% choices) "Total" else choices[1]
         )
@@ -179,7 +182,7 @@ report_module_server <- function(id, rv) {
       output$age_group_filter <- renderUI({
         req(rv$overall_summary)
         choices <- unique(rv$overall_summary$AGE_GROUP)
-        selectInput(session$ns("selected_age_group"), "Select Age Group:",
+        em_select_filter(session$ns("selected_age_group"), "Select Age Group:",
           choices = choices,
           selected = if ("Total" %in% choices) "Total" else choices[1]
         )
@@ -188,7 +191,7 @@ report_module_server <- function(id, rv) {
       output$model_filter <- renderUI({
         req(rv$overall_summary)
         choices <- unique(rv$overall_summary$Model)
-        checkboxGroupInput(session$ns("selected_models"), "Select Models:",
+        em_check_filter(session$ns("selected_models"), "Select Models:",
           choices = choices,
           selected = choices
         )
@@ -197,7 +200,7 @@ report_module_server <- function(id, rv) {
       output$event_filter <- renderUI({
         req(rv$summary_by_event)
         choices <- unique(rv$summary_by_event$event_name)
-        selectInput(session$ns("selected_event"), "Select Event:",
+        em_select_filter(session$ns("selected_event"), "Select Event:", translate = "All",
           choices = c("All", choices),
           selected = "All"
         )
@@ -320,12 +323,12 @@ report_module_server <- function(id, rv) {
       # Generate: build figures + render the HTML preview from the template.
       observeEvent(input$generate_report, {
         req(filtered_overall_summary())
-        withProgress(message = "Generating report...", value = 0, {
-          incProgress(0.3, detail = "Building figures...")
+        withProgress(message = em_tr("Generating report..."), value = 0, {
+          incProgress(0.3, detail = em_tr("Building figures..."))
           params <- assemble_report_params()
           report_params(params)
 
-          incProgress(0.4, detail = "Rendering preview...")
+          incProgress(0.4, detail = em_tr("Rendering preview..."))
           html_out <- tryCatch(
             render_report(html_format(), params),
             error = function(e) { message("HTML preview render failed: ", conditionMessage(e)); NULL }
@@ -336,12 +339,12 @@ report_module_server <- function(id, rv) {
           } else {
             report_generated(FALSE)
             shinyalert::shinyalert(
-              title = "Could not render preview",
-              text  = "The report could not be generated. See the app logs for details.",
+              title = em_tr("Could not render preview"),
+              text  = em_tr("The report could not be generated. See the app logs for details."),
               type  = "error"
             )
           }
-          incProgress(1, detail = "Done")
+          incProgress(1, detail = em_tr("Done"))
         })
       })
 
@@ -354,7 +357,7 @@ report_module_server <- function(id, rv) {
             style  = "width:100%; height:800px; border:1px solid #e5e5e5; border-radius:4px; background:white;"
           )
         } else {
-          HTML("<div style='text-align:center; margin-top:50px;'><h3>Click 'Generate Report' to build a report from your selected options.</h3></div>")
+          div(style = "text-align:center; margin-top:50px;", h3(em_label("Click 'Generate Report' to build a report from your selected options.")))
         }
       })
 
@@ -381,11 +384,11 @@ report_module_server <- function(id, rv) {
             render_report(out_format, params),
             error = function(e) {
               shinyalert::shinyalert(
-                title = paste0("Could not render ", toupper(fmt), " report"),
+                title = sprintf(em_tr("Could not render %s report"), toupper(fmt)),
                 text  = paste0(
                   "<pre style='text-align:left;'>", htmltools::htmlEscape(conditionMessage(e)),
-                  if (fmt == "pdf") "\n\nIf this mentions LaTeX, run tinytex::install_tinytex()." else "",
-                  if (fmt == "docx") "\n\nIf this mentions officedown, run install.packages('officedown')." else "",
+                  if (fmt == "pdf") paste0("\n\n", em_tr("If this mentions LaTeX, run tinytex::install_tinytex().")) else "",
+                  if (fmt == "docx") paste0("\n\n", em_tr("If this mentions officedown, run install.packages('officedown').")) else "",
                   "</pre>"),
                 type = "error", html = TRUE
               )
@@ -398,7 +401,7 @@ report_module_server <- function(id, rv) {
 
       # 在 moduleServer 函数内部添加导航处理器
       observeEvent(input$goto_model_tab, {
-        session$sendCustomMessage("navigateTab", "Model")
+        session$sendCustomMessage("navigateTab", "tab3")
       })
     }
   )

@@ -3,6 +3,7 @@
 # minimum-AIC model as the best fit. Historical Average has no parametric
 # AIC and is shown as N/A; it is excluded from the "Best" determination.
 
+source_module("modules/interface_language.R")
 library(shiny)
 library(DT)
 library(dplyr)
@@ -55,7 +56,7 @@ best_fit_module_ui <- function(id) {
 
 best_fit_module_server <- function(id, rv) {
   moduleServer(id, function(input, output, session) {
-      output$analysis_context <- renderText(rv$data_description)
+      output$analysis_context <- renderText(em_context(rv))
 
     output$has_aic_data <- reactive({
       !is.null(rv$model_aic) && nrow(rv$model_aic) > 0
@@ -67,14 +68,14 @@ best_fit_module_server <- function(id, rv) {
       if (is.na(rv$best_model) || is.null(rv$best_model)) {
         div(
           class = "alert alert-warning",
-          strong("No best fit available."),
-          " None of the run models produced a finite AIC."
+          strong(em_label("No best fit available.")),
+          em_label(" None of the run models produced a finite AIC.")
         )
       } else {
         div(
           class = "alert alert-success",
-          strong("Best model by AIC: "),
-          rv$best_model
+          strong(em_label("Best model by AIC: ")),
+          em_label(rv$best_model)
         )
       }
     })
@@ -84,11 +85,12 @@ best_fit_module_server <- function(id, rv) {
       df <- rv$model_aic %>%
         mutate(
           AIC = ifelse(is.finite(AIC), round(AIC, 2), NA_real_),
-          Best = ifelse(Best, "Yes", "")
+          Best = ifelse(Best, em_tr("Yes"), ""),
+          Model = em_tr(Model)
         ) %>%
         arrange(is.na(AIC), AIC)
 
-      DT::datatable(
+      em_datatable(
         df,
         options = list(
           dom = "t",
@@ -100,8 +102,8 @@ best_fit_module_server <- function(id, rv) {
         DT::formatStyle(
           "Best",
           target = "row",
-          backgroundColor = DT::styleEqual("Yes", "#dff0d8"),
-          fontWeight = DT::styleEqual("Yes", "bold")
+          backgroundColor = DT::styleEqual(em_tr("Yes"), "#dff0d8"),
+          fontWeight = DT::styleEqual(em_tr("Yes"), "bold")
         )
     })
 
@@ -116,7 +118,7 @@ best_fit_module_server <- function(id, rv) {
     )
 
     observeEvent(input$goto_model_tab, {
-      session$sendCustomMessage("navigateTab", "Model")
+      session$sendCustomMessage("navigateTab", "tab3")
     })
   })
 }

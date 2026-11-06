@@ -1,5 +1,7 @@
 # exmort 0.1.1.9000
 
+* Added an English and Simplified Chinese interface with an in-session language selector.
+
 * Added country and cause selection for monthly mortality workbooks, with
   official Australia and Philippines examples and a cause-specific template.
 * Added separate historical-average and negative-binomial cause baselines,
