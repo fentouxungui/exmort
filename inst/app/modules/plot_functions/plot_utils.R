@@ -1,6 +1,7 @@
 # plot_utils.R
 # Shared plotting helpers used by ggplot2 and plotly outputs.
 
+source_module("modules/interface_language.R")
 library(ggplot2)
 library(dplyr)
 library(RColorBrewer)
@@ -56,10 +57,10 @@ create_mortality_plot <- function(data, plot_type = c("ACM", "ED_bar", "ED_line"
   if (is.null(data) || nrow(data) == 0) {
     if (for_plotly) {
       return(plot_ly() %>%
-               add_annotations(text = "No data available for selected filters.", x = 0.5, y = 0.5, showarrow = FALSE))
+               add_annotations(text = em_tr("No data available for selected filters."), x = 0.5, y = 0.5, showarrow = FALSE))
     } else {
       return(ggplot() +
-               annotate("text", x = 0.5, y = 0.5, label = "No data available for selected filters.") +
+               annotate("text", x = 0.5, y = 0.5, label = em_tr("No data available for selected filters.")) +
                theme_void())
     }
   }
@@ -79,10 +80,10 @@ create_mortality_plot <- function(data, plot_type = c("ACM", "ED_bar", "ED_line"
   if (nrow(data) == 0) {
     if (for_plotly) {
       return(plot_ly() %>%
-               add_annotations(text = "No data with reported deaths available.", x = 0.5, y = 0.5, showarrow = FALSE))
+               add_annotations(text = em_tr("No data with reported deaths available."), x = 0.5, y = 0.5, showarrow = FALSE))
     } else {
       return(ggplot() +
-               annotate("text", x = 0.5, y = 0.5, label = "No data with reported deaths available.") +
+               annotate("text", x = 0.5, y = 0.5, label = em_tr("No data with reported deaths available.")) +
                theme_void())
     }
   }
@@ -150,14 +151,16 @@ create_mortality_plot <- function(data, plot_type = c("ACM", "ED_bar", "ED_line"
   cause_mode <- "CAUSE" %in% names(data) && any(data$CAUSE != "Total")
   title <- switch(plot_type,
                   ACM = if (cause_mode) "Deaths: Recorded vs. Expected" else "All Cause Mortality: Recorded vs. Expected",
-                  ED_bar = "Excess Deaths",
+                  ED_bar = em_tr("Excess Deaths"),
                   ED_line = "Excess Deaths (Line Plot)",
                   EP_bar = "P-Score of Excess Deaths (%)",
                   EP_line = "P-Score (Line Plot)")
-  subtitle <- paste("Sex:", selected_sex, "| Age Group:", selected_age_group)
+  title <- em_tr(title)
+  subtitle <- paste(em_tr("Sex:"), em_stratum(selected_sex), em_tr("| Age Group:"), em_stratum(selected_age_group))
   if (cause_mode) subtitle <- paste(data$COUNTRY[1], data$CAUSE[1], subtitle, sep = " | ")
   interval_label <- if (cause_mode && !plot_type %in% c("EP_bar", "EP_line")) "95% prediction interval" else "95% CI"
-  ci_caption <- if (has_ci) paste0("Note: Intervals show ", interval_label, ".") else NULL
+  interval_label <- em_tr(interval_label)
+  ci_caption <- if (has_ci) sprintf(em_tr("Note: Intervals show %s."), interval_label) else NULL
 
   # 模型颜色（保持不变）
   model_colors <- get_model_colors()
@@ -170,14 +173,14 @@ create_mortality_plot <- function(data, plot_type = c("ACM", "ED_bar", "ED_line"
     if (plot_type == "ACM") {
       # 为 Recorded 数据添加悬停信息
       recorded_data <- data %>%
-        mutate(hover_text = paste("Time:", format(TimePoint, "%Y-%m-%d"),
-                                  "<br>Recorded Deaths:", round(NO_DEATHS)))
+        mutate(hover_text = paste(em_tr("Time:"), format(TimePoint, "%Y-%m-%d"),
+                                  em_tr("<br>Recorded Deaths:"), round(NO_DEATHS)))
       p <- p %>%
         add_trace(
           data = recorded_data,
           x = ~TimePoint,
           y = ~NO_DEATHS,
-          name = "Recorded",
+          name = em_tr("Recorded"),
           type = "scatter",
           mode = "lines",
           line = list(color = "black", width = 2),
@@ -190,14 +193,14 @@ create_mortality_plot <- function(data, plot_type = c("ACM", "ED_bar", "ED_line"
         model_data <- data %>%
           filter(Model == model_name) %>%
           mutate(hover_text = if (has_ci) {
-            paste0("Time: ", format(TimePoint, "%Y-%m-%d"),
-                  "<br>Model: ", Model,
-                  "<br>Expected Deaths: ", round(EXP_DEATHS, 2),
+            paste0(em_tr("Time: "), format(TimePoint, "%Y-%m-%d"),
+                  em_tr("<br>Model: "), em_tr(Model),
+                  em_tr("<br>Expected Deaths: "), round(EXP_DEATHS, 2),
                   "<br>", interval_label, ": ", round(LOWER_LIMIT), ", ", round(UPPER_LIMIT))
           } else {
-            paste0("Time: ", format(TimePoint, "%Y-%m-%d"),
-                  "<br>Model: ", Model,
-                  "<br>Expected Deaths: ", round(EXP_DEATHS, 2))
+            paste0(em_tr("Time: "), format(TimePoint, "%Y-%m-%d"),
+                  em_tr("<br>Model: "), em_tr(Model),
+                  em_tr("<br>Expected Deaths: "), round(EXP_DEATHS, 2))
           })
         line_color <- model_colors[model_name] %||% "#999999"
         line_dash <- switch(model_name,
@@ -209,7 +212,7 @@ create_mortality_plot <- function(data, plot_type = c("ACM", "ED_bar", "ED_line"
             data = model_data,
             x = ~TimePoint,
             y = ~EXP_DEATHS,
-            name = paste(model_name, "Expected"),
+            name = paste(em_tr(model_name), em_tr("Expected")),
             type = "scatter",
             mode = "lines",
             line = list(color = line_color, width = 1.5, dash = line_dash),
@@ -223,7 +226,7 @@ create_mortality_plot <- function(data, plot_type = c("ACM", "ED_bar", "ED_line"
               x = ~TimePoint,
               ymin = ~LOWER_LIMIT,
               ymax = ~UPPER_LIMIT,
-              name = paste(model_name, interval_label),
+              name = paste(em_tr(model_name), interval_label),
               line = list(color = "transparent"),
               fillcolor = adjustcolor(line_color, alpha.f = 0.2),
               showlegend = FALSE,
@@ -236,9 +239,9 @@ create_mortality_plot <- function(data, plot_type = c("ACM", "ED_bar", "ED_line"
         model_data <- data %>%
           filter(Model == model_name) %>%
           mutate(hover_text = if (has_ci) {
-            paste0("Time: ", format(TimePoint, "%Y-%m-%d"),
-                  "<br>Model: ", Model,
-                  "<br>", if (plot_type == "ED_bar") "Excess Deaths: " else "P-Score: ",
+            paste0(em_tr("Time: "), format(TimePoint, "%Y-%m-%d"),
+                  em_tr("<br>Model: "), em_tr(Model),
+                  "<br>", if (plot_type == "ED_bar") em_tr("Excess Deaths: ") else em_tr("P-Score: "),
                   round(if (plot_type == "ED_bar") EXCESS_DEATHS else P_SCORE, 2),
                   if (plot_type == "EP_bar") "%" else "",
                   "<br>", interval_label, ": ",
@@ -246,9 +249,9 @@ create_mortality_plot <- function(data, plot_type = c("ACM", "ED_bar", "ED_line"
                   round(if (plot_type == "ED_bar") EXCESS_UPPER else P_SCORE_UPPER, 2),
                   if (plot_type == "EP_bar") "%" else "")
           } else {
-            paste0("Time: ", format(TimePoint, "%Y-%m-%d"),
-                  "<br>Model: ", Model,
-                  "<br>", if (plot_type == "ED_bar") "Excess Deaths: " else "P-Score: ",
+            paste0(em_tr("Time: "), format(TimePoint, "%Y-%m-%d"),
+                  em_tr("<br>Model: "), em_tr(Model),
+                  "<br>", if (plot_type == "ED_bar") em_tr("Excess Deaths: ") else em_tr("P-Score: "),
                   round(if (plot_type == "ED_bar") EXCESS_DEATHS else P_SCORE, 2),
                   if (plot_type == "EP_bar") "%" else "")
           })
@@ -258,7 +261,7 @@ create_mortality_plot <- function(data, plot_type = c("ACM", "ED_bar", "ED_line"
             data = model_data,
             x = ~TimePoint,
             y = if (plot_type == "ED_bar") ~EXCESS_DEATHS else ~P_SCORE,
-            name = model_name,
+            name = em_tr(model_name),
             marker = list(color = bar_color),
             hoverinfo = "text",
             text = ~hover_text,
@@ -291,9 +294,9 @@ create_mortality_plot <- function(data, plot_type = c("ACM", "ED_bar", "ED_line"
         model_data <- data %>%
           filter(Model == model_name) %>%
           mutate(hover_text = if (has_ci) {
-            paste0("Time: ", format(TimePoint, "%Y-%m-%d"),
-                  "<br>Model: ", Model,
-                  "<br>", if (plot_type == "ED_line") "Excess Deaths: " else "P-Score: ",
+            paste0(em_tr("Time: "), format(TimePoint, "%Y-%m-%d"),
+                  em_tr("<br>Model: "), em_tr(Model),
+                  "<br>", if (plot_type == "ED_line") em_tr("Excess Deaths: ") else em_tr("P-Score: "),
                   round(if (plot_type == "ED_line") EXCESS_DEATHS else P_SCORE, 2),
                   if (plot_type == "EP_line") "%" else "",
                   "<br>", interval_label, ": ",
@@ -301,9 +304,9 @@ create_mortality_plot <- function(data, plot_type = c("ACM", "ED_bar", "ED_line"
                   round(if (plot_type == "ED_line") EXCESS_UPPER else P_SCORE_UPPER, 2),
                   if (plot_type == "EP_line") "%" else "")
           } else {
-            paste("Time:", format(TimePoint, "%Y-%m-%d"),
-                  "<br>Model:", Model,
-                  "<br>", if (plot_type == "ED_line") "Excess Deaths:" else "P-Score:",
+            paste(em_tr("Time:"), format(TimePoint, "%Y-%m-%d"),
+                  em_tr("<br>Model:"), em_tr(Model),
+                  "<br>", if (plot_type == "ED_line") em_tr("Excess Deaths:") else em_tr("P-Score:"),
                   round(if (plot_type == "ED_line") EXCESS_DEATHS else P_SCORE, 2),
                   if (plot_type == "EP_line") "%" else "")
           })
@@ -317,7 +320,7 @@ create_mortality_plot <- function(data, plot_type = c("ACM", "ED_bar", "ED_line"
             data = model_data,
             x = ~TimePoint,
             y = if (plot_type == "ED_line") ~EXCESS_DEATHS else ~P_SCORE,
-            name = model_name,
+            name = em_tr(model_name),
             type = "scatter",
             mode = "lines",
             line = list(color = line_color, width = 2, dash = line_dash),
@@ -331,7 +334,7 @@ create_mortality_plot <- function(data, plot_type = c("ACM", "ED_bar", "ED_line"
               x = ~TimePoint,
               ymin = if (plot_type == "ED_line") ~EXCESS_LOWER else ~P_SCORE_LOWER,
               ymax = if (plot_type == "ED_line") ~EXCESS_UPPER else ~P_SCORE_UPPER,
-              name = paste(model_name, interval_label),
+              name = paste(em_tr(model_name), interval_label),
               line = list(color = "transparent"),
               fillcolor = adjustcolor(line_color, alpha.f = 0.2),
               showlegend = FALSE,
@@ -390,18 +393,18 @@ create_mortality_plot <- function(data, plot_type = c("ACM", "ED_bar", "ED_line"
         hoverlabel = list(font = list(family = "Source Sans Pro, Segoe UI, Arial, sans-serif")),
         title = list(text = paste0(title, "<br><sup>", subtitle, "</sup>"), font = list(size = 16)),
         xaxis = list(
-          title = "Time",
+          title = em_tr("Time"),
           tickangle = 45,
           tickvals = time_breaks,
           ticktext = format_time_labels(time_breaks, data)
         ),
         yaxis = list(
           title = switch(plot_type,
-                         ACM = "Number of Deaths",
-                         ED_bar = "Excess Deaths",
-                         ED_line = "Excess Deaths",
-                         EP_bar = "P-Score (%)",
-                         EP_line = "P-Score (%)"),
+                         ACM = em_tr("Number of Deaths"),
+                         ED_bar = em_tr("Excess Deaths"),
+                         ED_line = em_tr("Excess Deaths"),
+                         EP_bar = em_tr("P-Score (%)"),
+                         EP_line = em_tr("P-Score (%)")),
           range = c(y_min, y_max)
         ),
         shapes = shapes,
@@ -466,7 +469,7 @@ create_mortality_plot <- function(data, plot_type = c("ACM", "ED_bar", "ED_line"
           aes(x = start_time + (end_time - start_time) / 2, y = y_max * 0.95, label = event_name),
           hjust = 0.5, vjust = -0.5, size = 3, color = "darkred"
         ) +
-        scale_fill_brewer(name = "Events", palette = "Set3")
+        scale_fill_brewer(name = em_tr("Events"), palette = "Set3")
     }
 
     # 添加轴和主题
@@ -476,8 +479,8 @@ create_mortality_plot <- function(data, plot_type = c("ACM", "ED_bar", "ED_line"
         limits = c(y_min, y_max),
         labels = if (plot_type %in% c("EP_bar", "EP_line")) scales::percent_format(scale = 1) else scales::number_format(big.mark = ",")
       ) +
-      scale_color_manual(name = "Series", values = c("Recorded" = "black", model_colors), breaks = c("Recorded", names(model_colors))) +
-      scale_fill_manual(name = interval_label, values = model_colors, breaks = names(model_colors)) +
+      scale_color_manual(name = em_tr("Series"), labels = em_tr, values = c("Recorded" = "black", model_colors), breaks = c("Recorded", names(model_colors))) +
+      scale_fill_manual(name = interval_label, labels = em_tr, values = model_colors, breaks = names(model_colors)) +
       scale_linetype_manual(
         name = "Series",
         values = c(
@@ -492,7 +495,7 @@ create_mortality_plot <- function(data, plot_type = c("ACM", "ED_bar", "ED_line"
         ),
         guide = "none"
       ) +
-      labs(title = title, subtitle = subtitle, caption = ci_caption, x = "Time", y = switch(plot_type, ACM = "Number of Deaths", ED_bar = "Excess Deaths", ED_line = "Excess Deaths", EP_bar = "P-Score (%)", EP_line = "P-Score (%)")) +
+      labs(title = title, subtitle = subtitle, caption = ci_caption, x = em_tr("Time"), y = switch(plot_type, ACM = em_tr("Number of Deaths"), ED_bar = em_tr("Excess Deaths"), ED_line = em_tr("Excess Deaths"), EP_bar = em_tr("P-Score (%)"), EP_line = em_tr("P-Score (%)"))) +
       theme_wpro() +
       theme(
         axis.text.x = element_text(angle = 45, hjust = 1),

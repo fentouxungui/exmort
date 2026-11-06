@@ -44,6 +44,7 @@ source_module <- function(path, force = FALSE) {
 
 # Note: date_midpoint() lives in modules/plot_prediction_module_new.R.
 
+source_module("modules/interface_language.R")
 source_module("modules/utils.R")
 source_module("modules/cause_data.R")
 source_module("modules/ACM_hist_new.R")
@@ -98,7 +99,7 @@ week_start_labels <- function(year, period) {
 # Main UI: navbar layout with About as the landing page.
 ui <- navbarPage(
   # title = "WPRO All Cause Mortality and Excess Mortality Calculator (2025)",
-  title = "",
+  title = em_language_control(),
   id = "navbar",
   windowTitle = "WPRO All Cause Mortality and Excess Mortality Calculator (2025)",
   collapsible = TRUE,
@@ -106,6 +107,7 @@ ui <- navbarPage(
   # JavaScript that lets the server send navigation messages to the client
   # and bubble nested tabsetPanel changes back as Shiny inputs.
   header = tags$head(
+    em_language_head(),
     tags$script(HTML("
       Shiny.addCustomMessageHandler('navigateTab', function(tabName) {
         $('a[data-value=\"' + tabName + '\"]').click();
@@ -188,7 +190,10 @@ ui <- navbarPage(
 )
 
 # Server
+ui <- em_ui(ui)
+
 server <- function(input, output, session) {
+  session$userData$em_language <- reactive(input$ui_language)
   # The app formats a lot of model output at default precision. Restore the
   # user's own options() when the session ends so nothing leaks out of the app
   # (the Shiny equivalent of an immediate on.exit(); the server function itself
@@ -266,7 +271,7 @@ server <- function(input, output, session) {
   output$plot_prediction_ui <- renderUI({
     load_module("plot_prediction")
     module_loaded$plot_prediction <- TRUE
-    plot_prediction_module_ui("plot_prediction_mod")
+    em_ui(plot_prediction_module_ui("plot_prediction_mod"))
   })
 
   observe({
@@ -278,7 +283,7 @@ server <- function(input, output, session) {
   output$plot_event_ui <- renderUI({
     load_module("plot_event")
     module_loaded$plot_event <- TRUE
-    plot_event_module_ui("plot_event_mod")
+    em_ui(plot_event_module_ui("plot_event_mod"))
   })
 
   observe({
@@ -290,7 +295,7 @@ server <- function(input, output, session) {
   output$plot_total_ui <- renderUI({
     load_module("plot_total")
     module_loaded$plot_total <- TRUE
-    plot_total_module_ui("plot_total_mod")
+    em_ui(plot_total_module_ui("plot_total_mod"))
   })
 
   observe({
@@ -330,9 +335,7 @@ server <- function(input, output, session) {
   })
 
   observeEvent(input$goto_model_tab, {
-    # Tab name must match the tabPanel label exactly.
-    updateNavbarPage(session, "navbar", selected = "Model")
-    session$sendCustomMessage("navigateTab", "tab3")
+    updateNavbarPage(session, "navbar", selected = "tab3")
   })
 }
 

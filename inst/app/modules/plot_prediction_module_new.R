@@ -1,6 +1,7 @@
 # plot_prediction_module_new.R
 # Plot module for the "Model prediction results" tab on the Plots page.
 
+source_module("modules/interface_language.R")
 library(shiny)
 library(ggplot2)
 library(dplyr)
@@ -63,7 +64,7 @@ plot_prediction_module_ui <- function(id) {
 
 plot_prediction_module_server <- function(id, rv) {
   moduleServer(id, function(input, output, session) {
-      output$analysis_context <- renderText(rv$data_description)
+      output$analysis_context <- renderText(em_context(rv))
     ns <- session$ns
 
     # Filter selectors are populated from whatever values appear in
@@ -71,20 +72,20 @@ plot_prediction_module_server <- function(id, rv) {
     output$sex_selector <- renderUI({
       req(rv$total_prediction)
       unique_sex <- sort(unique(rv$total_prediction$SEX), na.last = TRUE, decreasing = TRUE)
-      selectInput(ns("selected_sex"), "Select Sex:", choices = unique_sex, selected = unique_sex[1], multiple = FALSE)
+      em_select_filter(ns("selected_sex"), "Select Sex:", choices = unique_sex, selected = unique_sex[1], multiple = FALSE)
     })
 
     output$age_group_selector <- renderUI({
       req(rv$total_prediction)
       unique_age_group <- sort(unique(rv$total_prediction$AGE_GROUP), na.last = TRUE, decreasing = TRUE)
-      selectInput(ns("selected_age_group"), "Select Age Group:", choices = unique_age_group, selected = unique_age_group[1], multiple = FALSE)
+      em_select_filter(ns("selected_age_group"), "Select Age Group:", choices = unique_age_group, selected = unique_age_group[1], multiple = FALSE)
     })
 
     output$model_selector <- renderUI({
       req(rv$total_prediction)
       unique_models <- sort(unique(rv$total_prediction$Model))
       default_selected <- if ("Negative Binomial Regression" %in% unique_models) "Negative Binomial Regression" else unique_models[1]
-      checkboxGroupInput(ns("selected_models"), "Select Models to Display:", choices = unique_models, selected = default_selected)
+      em_check_filter(ns("selected_models"), "Select Models to Display:", choices = unique_models, selected = default_selected)
     })
 
     output$time_slider <- renderUI({
@@ -99,7 +100,7 @@ plot_prediction_module_server <- function(id, rv) {
         pull(TimePoint)
       if (length(data_dates) == 0) return(NULL)
       date_range <- range(data_dates, na.rm = TRUE)
-      sliderInput(ns("time_range"), "Select Time Period:", min = date_range[1], max = date_range[2], value = date_range, timeFormat = "%Y-%m", step = 7, width = "100%")
+      sliderInput(ns("time_range"), em_label("Select Time Period:"), min = date_range[1], max = date_range[2], value = date_range, timeFormat = "%Y-%m", step = 7, width = "100%")
     })
 
     # Filtered prediction data shared by all five renderPlotly outputs.
@@ -185,7 +186,7 @@ plot_prediction_module_server <- function(id, rv) {
         tryCatch(
           {
             plot_obj <- create_mortality_plot(filtered_total_data(), plot_type = "ACM", selected_sex = input$selected_sex, selected_age_group = input$selected_age_group, for_plotly = FALSE)
-            ggsave(file, plot = plot_obj, device = "pdf", width = 11, height = 7, units = "in")
+            ggsave(file, plot = plot_obj, device = em_pdf, width = 11, height = 7, units = "in")
           },
           error = function(e) message("Error in downloading ACM plot: ", e$message)
         )
@@ -198,7 +199,7 @@ plot_prediction_module_server <- function(id, rv) {
         tryCatch(
           {
             plot_obj <- create_mortality_plot(filtered_total_data(), plot_type = "ED_bar", selected_sex = input$selected_sex, selected_age_group = input$selected_age_group, for_plotly = FALSE)
-            ggsave(file, plot = plot_obj, device = "pdf", width = 11, height = 7, units = "in")
+            ggsave(file, plot = plot_obj, device = em_pdf, width = 11, height = 7, units = "in")
           },
           error = function(e) message("Error in downloading ED plot: ", e$message)
         )
@@ -211,7 +212,7 @@ plot_prediction_module_server <- function(id, rv) {
         tryCatch(
           {
             plot_obj <- create_mortality_plot(filtered_total_data(), plot_type = "EP_bar", selected_sex = input$selected_sex, selected_age_group = input$selected_age_group, for_plotly = FALSE)
-            ggsave(file, plot = plot_obj, device = "pdf", width = 11, height = 7, units = "in")
+            ggsave(file, plot = plot_obj, device = em_pdf, width = 11, height = 7, units = "in")
           },
           error = function(e) message("Error in downloading EP plot: ", e$message)
         )

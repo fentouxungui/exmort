@@ -1,3 +1,4 @@
+source_module("modules/interface_language.R")
 library(shiny)
 library(DT)
 library(reactable)   # Formatted preview tables
@@ -186,9 +187,9 @@ data_process_module_server <- function(id, rv) {
       selected <- if (isTRUE(input$selected_cause %in% causes)) input$selected_cause else if ("Total" %in% causes) "Total" else causes[1]
       tagList(
         tags$hr(),
-        selectInput(ns("selected_country"), "Country", countries, selected = country),
-        selectizeInput(ns("selected_cause"), "Cause of death", causes, selected = selected),
-        helpText("One country and one cause are analysed at a time. Changing either selection clears the previous results."),
+        selectInput(ns("selected_country"), em_label("Country"), countries, selected = country),
+        selectizeInput(ns("selected_cause"), em_label("Cause of death"), causes, selected = selected),
+        helpText(em_label("One country and one cause are analysed at a time. Changing either selection clears the previous results.")),
         textOutput(ns("selection_coverage")),
         helpText(data$source_note)
       )
@@ -197,10 +198,12 @@ data_process_module_server <- function(id, rv) {
     output$selection_coverage <- renderText({
       selected <- selected_mortality()
       baseline <- selected[selected$event_index == "0", , drop = FALSE]
-      paste0(min(selected$YEAR), "-", max(selected$YEAR), "; ", nrow(selected), " periods; ",
-             sum(is.na(selected$NO_DEATHS)), " missing counts; ", nrow(baseline), " baseline periods. ",
-             if (nrow(baseline) < 24 && any(selected$CAUSE != "Total"))
-               "Cause-specific modelling needs at least two complete baseline years. You can inspect and download these data." else "")
+      summary <- sprintf(em_tr("%d-%d; %d periods; %d missing counts; %d baseline periods."),
+        min(selected$YEAR), max(selected$YEAR), nrow(selected), sum(is.na(selected$NO_DEATHS)), nrow(baseline))
+      if (nrow(baseline) < 24 && any(selected$CAUSE != "Total")) {
+        summary <- paste(summary, em_tr("Cause-specific modelling needs at least two complete baseline years. You can inspect and download these data."))
+      }
+      summary
     })
 
     observeEvent(selected_mortality(), {
@@ -211,6 +214,7 @@ data_process_module_server <- function(id, rv) {
 
     # Expose the selected series while retaining the complete imported dataset.
     observe({
+      rv$display_source <- data$display_source
       rv$acm_rawdata <- data$acm_rawdata
       rv$acm_data <- data$acm_data
       rv$event_data <- data$event_data
@@ -230,8 +234,8 @@ data_process_module_server <- function(id, rv) {
     # all three preview tables (merged / mortality / events) stay consistent.
     make_preview_table <- function(df, placeholder = "No data loaded yet.") {
       if (is.null(df) || nrow(df) == 0) {
-        return(reactable::reactable(
-          data.frame(Message = placeholder),
+        return(em_reactable(
+          data.frame(Message = em_tr(placeholder)),
           sortable = FALSE, pagination = FALSE,
           defaultColDef = reactable::colDef(headerStyle = list(background = "#f7f7f7"))
         ))
@@ -258,7 +262,7 @@ data_process_module_server <- function(id, rv) {
           }
         )
       }
-      reactable::reactable(
+      em_reactable(
         df,
         columns = col_defs,
         filterable = TRUE, searchable = TRUE, striped = TRUE, highlight = TRUE,
@@ -308,7 +312,7 @@ data_process_module_server <- function(id, rv) {
       req(input$rawdatafile)
       sheets <- mortality_sheet_names(input$rawdatafile$datapath)
       selected_sheet <- ifelse("National level" %in% sheets, "National level", sheets[1])
-      selectInput(ns("sheetname"), "Select mortality data sheet", choices = sheets, selected = selected_sheet)
+      selectInput(ns("sheetname"), em_label("Select mortality data sheet"), choices = sheets, selected = selected_sheet)
     })
 
     output$selecteventsheet <- renderUI({
@@ -319,7 +323,7 @@ data_process_module_server <- function(id, rv) {
       # only the default selection is a scalar. The old ifelse() collapsed
       # `choices` to a single sheet because ifelse() returns a length-1 value.
       selected_event_sheet <- if ("events" %in% event_sheets) "events" else event_sheets[1]
-      selectInput(ns("eventsheetname"), "Select events data sheet",
+      selectInput(ns("eventsheetname"), em_label("Select events data sheet"),
                   choices = event_sheets, selected = selected_event_sheet)
     })
 
@@ -329,7 +333,7 @@ data_process_module_server <- function(id, rv) {
       if (file.exists(file_path)) {
         sheets <- mortality_sheet_names(file_path)
         selected_sheet <- ifelse("National level" %in% sheets, "National level", sheets[1])
-        selectInput(ns("builtinsheetname"), "Select mortality data sheet", choices = sheets, selected = selected_sheet)
+        selectInput(ns("builtinsheetname"), em_label("Select mortality data sheet"), choices = sheets, selected = selected_sheet)
       }
     })
 
@@ -340,7 +344,7 @@ data_process_module_server <- function(id, rv) {
         sheets <- readxl::excel_sheets(file_path)
         event_sheets <- setdiff(sheets, input$builtinsheetname)
         selected_event_sheet <- if ("events" %in% event_sheets) "events" else event_sheets[1]
-        selectInput(ns("builtineventsheetname"), "Select events data sheet", choices = event_sheets, selected = selected_event_sheet)
+        selectInput(ns("builtineventsheetname"), em_label("Select events data sheet"), choices = event_sheets, selected = selected_event_sheet)
       }
     })
 
@@ -348,21 +352,21 @@ data_process_module_server <- function(id, rv) {
     observeEvent(input$loadEvents, {
       req(input$rawdatafile, input$sheetname, input$eventsheetname)
 
-      shinyjs::html(ns("progress_upload"), "Processing data, please wait...")
+      shinyjs::html(ns("progress_upload"), em_tr("Processing data, please wait..."))
       shinyjs::show(ns("progress_upload"))
 
       temp_file <- tempfile(pattern = "upload_", fileext = ".xlsx")
       file.copy(input$rawdatafile$datapath, temp_file, overwrite = TRUE)
 
-      withProgress(message = "Merging uploaded data...", value = 0, {
+      withProgress(message = em_tr("Merging uploaded data..."), value = 0, {
         tryCatch({
-          incProgress(0.2, detail = "Reading mortality data...")
+          incProgress(0.2, detail = em_tr("Reading mortality data..."))
           raw_data_new <- openxlsx::read.xlsx(temp_file, sheet = input$sheetname, colNames = FALSE)
 
-          incProgress(0.4, detail = "Processing mortality data...")
+          incProgress(0.4, detail = em_tr("Processing mortality data..."))
           acm_data_new <- read_mortality_sheet(temp_file, input$sheetname)
 
-          incProgress(0.6, detail = "Loading events data...")
+          incProgress(0.6, detail = em_tr("Loading events data..."))
           event_data_new <- loadEventsData(temp_file, input$eventsheetname)
 
           # Schema check BEFORE committing anything to shared state. On failure
@@ -372,13 +376,13 @@ data_process_module_server <- function(id, rv) {
           validation_msg <- validate_uploaded_data(acm_data_new, event_data_new)
           if (!is.null(validation_msg)) {
             validation_state(list(ok = FALSE, msg = validation_msg))
-            shinyjs::html(ns("progress_upload"), "Validation failed. See dialog for details.")
+            shinyjs::html(ns("progress_upload"), em_tr("Validation failed. See dialog for details."))
             shinyalert::shinyalert(
-              title = "Data validation failed",
-              text  = paste0("<pre style='text-align:left;'>", htmltools::htmlEscape(validation_msg), "</pre>"),
+              title = em_tr("Data validation failed"),
+              text  = paste0("<pre style='text-align:left;'>", htmltools::htmlEscape(em_validation_text(validation_msg)), "</pre>"),
               type  = "error",
               html  = TRUE,
-              confirmButtonText = "OK"
+              confirmButtonText = em_tr("OK")
             )
             return(invisible(NULL))
           }
@@ -389,8 +393,9 @@ data_process_module_server <- function(id, rv) {
           data$acm_data <- acm_data_new
           data$event_data <- event_data_new
 
-          incProgress(0.8, detail = "Merging data...")
+          incProgress(0.8, detail = em_tr("Merging data..."))
           data$merged_data <- mergeEventsData(data$acm_data, data$event_data)
+          data$display_source <- list(type = "upload", name = input$rawdatafile$name)
           data$data_description <- paste("Uploaded data from", input$rawdatafile$name)
           validation_state(list(ok = TRUE))
 
@@ -403,11 +408,11 @@ data_process_module_server <- function(id, rv) {
           rv$model_aic        <- NULL
           rv$best_model       <- NULL
 
-          shinyjs::html(ns("progress_upload"), "Data merged successfully!")
+          shinyjs::html(ns("progress_upload"), em_tr("Data merged successfully!"))
         },
         error = function(e) {
           validation_state(list(ok = FALSE, msg = conditionMessage(e)))
-          showNotification(conditionMessage(e), type = "error", duration = 15)
+          showNotification(em_tr(conditionMessage(e)), type = "error", duration = 15)
         },
         finally = {
           if (file.exists(temp_file)) {
@@ -415,7 +420,7 @@ data_process_module_server <- function(id, rv) {
           }
         })
 
-        incProgress(0.2, detail = "Complete!")
+        incProgress(0.2, detail = em_tr("Complete!"))
       })
 
       shinyjs::delay(2000, shinyjs::hide(ns("progress_upload")))
@@ -425,33 +430,33 @@ data_process_module_server <- function(id, rv) {
     observeEvent(input$loadBuiltinEvents, {
       req(input$samplecountry, input$builtinsheetname, input$builtineventsheetname)
 
-      shinyjs::html(ns("progress_builtin"), "Loading built-in data, please wait...")
+      shinyjs::html(ns("progress_builtin"), em_tr("Loading built-in data, please wait..."))
       shinyjs::show(ns("progress_builtin"))
 
       file_path <- builtin_mortality_path(input$samplecountry)
 
-      withProgress(message = "Loading built-in data...", value = 0, {
+      withProgress(message = em_tr("Loading built-in data..."), value = 0, {
         tryCatch({
         if (file.exists(file_path)) {
-          incProgress(0.2, detail = "Reading mortality data...")
+          incProgress(0.2, detail = em_tr("Reading mortality data..."))
           raw_data_new <- openxlsx::read.xlsx(file_path, sheet = input$builtinsheetname, colNames = FALSE)
 
-          incProgress(0.4, detail = "Processing mortality data...")
+          incProgress(0.4, detail = em_tr("Processing mortality data..."))
           acm_data_new <- read_mortality_sheet(file_path, input$builtinsheetname)
 
-          incProgress(0.6, detail = "Loading events data...")
+          incProgress(0.6, detail = em_tr("Loading events data..."))
           event_data_new <- loadEventsData(file_path, input$builtineventsheetname)
 
           validation_msg <- validate_uploaded_data(acm_data_new, event_data_new)
           if (!is.null(validation_msg)) {
             validation_state(list(ok = FALSE, msg = validation_msg))
-            shinyjs::html(ns("progress_builtin"), "Validation failed. See dialog for details.")
+            shinyjs::html(ns("progress_builtin"), em_tr("Validation failed. See dialog for details."))
             shinyalert::shinyalert(
-              title = "Data validation failed",
-              text  = paste0("<pre style='text-align:left;'>", htmltools::htmlEscape(validation_msg), "</pre>"),
+              title = em_tr("Data validation failed"),
+              text  = paste0("<pre style='text-align:left;'>", htmltools::htmlEscape(em_validation_text(validation_msg)), "</pre>"),
               type  = "error",
               html  = TRUE,
-              confirmButtonText = "OK"
+              confirmButtonText = em_tr("OK")
             )
             return(invisible(NULL))
           }
@@ -461,9 +466,10 @@ data_process_module_server <- function(id, rv) {
           data$acm_data <- acm_data_new
           data$event_data <- event_data_new
 
-          incProgress(0.8, detail = "Merging data...")
+          incProgress(0.8, detail = em_tr("Merging data..."))
           data$merged_data <- mergeEventsData(data$acm_data, data$event_data)
           data$source_note <- mortality_source_note(file_path)
+          data$display_source <- list(type = "example", name = input$samplecountry)
           data$data_description <- paste("Built-in", input$samplecountry, "data")
           validation_state(list(ok = TRUE))
 
@@ -474,15 +480,15 @@ data_process_module_server <- function(id, rv) {
           rv$model_aic        <- NULL
           rv$best_model       <- NULL
 
-          shinyjs::html(ns("progress_builtin"), "Built-in data loaded successfully!")
+          shinyjs::html(ns("progress_builtin"), em_tr("Built-in data loaded successfully!"))
         } else {
-          shinyjs::html(ns("progress_builtin"), "Error: File not found.")
+          shinyjs::html(ns("progress_builtin"), em_tr("Error: File not found."))
         }
 
-        incProgress(0.2, detail = "Complete!")
+        incProgress(0.2, detail = em_tr("Complete!"))
         }, error = function(e) {
           validation_state(list(ok = FALSE, msg = conditionMessage(e)))
-          showNotification(conditionMessage(e), type = "error", duration = 15)
+          showNotification(em_tr(conditionMessage(e)), type = "error", duration = 15)
         })
       })
 
@@ -545,7 +551,7 @@ data_process_module_server <- function(id, rv) {
         div(style = paste0("border-left:4px solid ", bd, ";background:", bg,
                            ";padding:7px 12px;margin-bottom:8px;border-radius:4px;"),
             div(style = paste0("font-size:1.35em;font-weight:700;color:", bd, ";line-height:1.1;"), value),
-            div(style = "font-size:0.78em;color:#555;", label))
+            div(style = "font-size:0.78em;color:#555;", em_label(label)))
       }
       tagList(
         card(format(m$n_records, big.mark = ","), "Data rows"),
@@ -608,7 +614,7 @@ data_process_module_server <- function(id, rv) {
         summarise(Rows = n(),
                   `Total deaths` = sum(NO_DEATHS, na.rm = TRUE),
                   Mean = round(mean(NO_DEATHS, na.rm = TRUE)), .groups = "drop")
-      reactable::reactable(
+      em_reactable(
         tab, compact = TRUE, pagination = FALSE, sortable = FALSE, fullWidth = TRUE,
         columns = list(
           `Total deaths` = reactable::colDef(format = reactable::colFormat(separators = TRUE)),
@@ -623,10 +629,10 @@ data_process_module_server <- function(id, rv) {
       if (is.null(vs)) return(NULL)
       if (isTRUE(vs$ok)) {
         div(class = "alert alert-success", style = "margin-top:10px;padding:8px 12px;",
-            icon("check-circle"), " Data validated and merged successfully.")
+            icon("check-circle"), em_label(" Data validated and merged successfully."))
       } else {
         div(class = "alert alert-danger", style = "margin-top:10px;padding:8px 12px;white-space:pre-wrap;",
-            strong("Data validation failed:"), br(), vs$msg)
+            strong(em_label("Data validation failed:")), br(), em_validation_text(vs$msg))
       }
     })
 

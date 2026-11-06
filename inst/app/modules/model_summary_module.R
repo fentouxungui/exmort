@@ -1,4 +1,5 @@
 # Load necessary R packages
+source_module("modules/interface_language.R")
 library(shiny)
 library(dplyr)
 library(DT)
@@ -13,8 +14,8 @@ library(shinyjs)
 render_result_table <- function(d) {
   d <- as.data.frame(d)
   if (nrow(d) == 0) {
-    return(reactable::reactable(
-      data.frame(Message = "No rows for the current filter."),
+    return(em_reactable(
+      data.frame(Message = em_tr("No rows for the current filter.")),
       sortable = FALSE, pagination = FALSE
     ))
   }
@@ -72,9 +73,9 @@ render_result_table <- function(d) {
     col_defs[[yc]] <- reactable::colDef(align = "right")  # plain integers, no separators
   }
   label_col <- names(d)[1]
-  col_defs[[label_col]] <- reactable::colDef(footer = "Σ shown")
+  col_defs[[label_col]] <- reactable::colDef(footer = em_tr("Σ shown"))
 
-  reactable::reactable(
+  em_reactable(
     d, columns = col_defs,
     filterable = TRUE, searchable = TRUE, striped = TRUE, highlight = TRUE, compact = TRUE,
     defaultPageSize = 12, showPageSizeOptions = TRUE, pageSizeOptions = c(12, 25, 50),
@@ -191,7 +192,7 @@ model_summary_module_server <- function(id, rv) {
   moduleServer(
     id,
     function(input, output, session) {
-      output$analysis_context <- renderText(rv$data_description)
+      output$analysis_context <- renderText(em_context(rv))
       # Drives the conditionalPanel above.
       output$has_model_data <- reactive({
         !is.null(rv$total_prediction) && !is.null(rv$summary_by_event) && !is.null(rv$overall_summary)
@@ -207,7 +208,7 @@ model_summary_module_server <- function(id, rv) {
       output$sex_filter <- renderUI({
         req(rv$overall_summary)
         choices <- unique(rv$overall_summary$SEX)
-        selectInput(session$ns("selected_sex"), "Select Sex:",
+        em_select_filter(session$ns("selected_sex"), "Select Sex:",
           choices = choices,
           selected = if ("Total" %in% choices) "Total" else choices[1]
         )
@@ -216,7 +217,7 @@ model_summary_module_server <- function(id, rv) {
       output$age_group_filter <- renderUI({
         req(rv$overall_summary)
         choices <- unique(rv$overall_summary$AGE_GROUP)
-        selectInput(session$ns("selected_age_group"), "Select Age Group:",
+        em_select_filter(session$ns("selected_age_group"), "Select Age Group:",
           choices = choices,
           selected = if ("Total" %in% choices) "Total" else choices[1]
         )
@@ -225,7 +226,7 @@ model_summary_module_server <- function(id, rv) {
       output$model_filter <- renderUI({
         req(rv$overall_summary)
         choices <- unique(rv$overall_summary$Model)
-        checkboxGroupInput(session$ns("selected_models"), "Select Models:",
+        em_check_filter(session$ns("selected_models"), "Select Models:",
           choices = choices,
           selected = choices
         )
@@ -234,7 +235,7 @@ model_summary_module_server <- function(id, rv) {
       output$event_filter <- renderUI({
         req(rv$summary_by_event)
         choices <- unique(rv$summary_by_event$event_name)
-        selectInput(session$ns("selected_event"), "Select Event:",
+        em_select_filter(session$ns("selected_event"), "Select Event:", translate = "All",
           choices = c("All", choices),
           selected = "All"
         )
@@ -334,7 +335,7 @@ model_summary_module_server <- function(id, rv) {
 
       # Navigation back to the Model tab from the empty-state link.
       observeEvent(input$goto_model_tab, {
-        session$sendCustomMessage("navigateTab", "Model")
+        session$sendCustomMessage("navigateTab", "tab3")
       })
     }
   )

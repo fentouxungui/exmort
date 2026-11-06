@@ -1,4 +1,5 @@
 # Load necessary R packages
+source_module("modules/interface_language.R")
 library(shiny)
 library(dplyr)
 library(DT)
@@ -234,9 +235,9 @@ model_run_module_server <- function(id, rv) {
       })
       outputOptions(output, "has_data", suspendWhenHidden = FALSE)
 
-      output$analysis_context <- renderText(rv$data_description)
+      output$analysis_context <- renderText(em_context(rv))
       output$cause_model_note <- renderUI({
-        if (is_cause_series(rv$merged_data)) helpText("Monthly cause-specific analysis uses Historical Average and Negative Binomial. Other models remain available for all-cause data. Death/excess bounds are prediction intervals; P-score bounds reflect expected-mean uncertainty.")
+        if (is_cause_series(rv$merged_data)) helpText(em_label("Monthly cause-specific analysis uses Historical Average and Negative Binomial. Other models remain available for all-cause data. Death/excess bounds are prediction intervals; P-score bounds reflect expected-mean uncertainty."))
       })
       observe({
         cause_mode <- is_cause_series(rv$merged_data)
@@ -289,7 +290,7 @@ model_run_module_server <- function(id, rv) {
         req(unique_sex())
         choices <- unique_sex()
         selected <- if ("Total" %in% choices) "Total" else choices
-        checkboxGroupInput(session$ns("sex"), NULL,
+        em_check_filter(session$ns("sex"), NULL,
           choices = choices,
           selected = selected
         )
@@ -299,7 +300,7 @@ model_run_module_server <- function(id, rv) {
         req(unique_age_group())
         choices <- unique_age_group()
         selected <- if ("Total" %in% choices) "Total" else choices
-        checkboxGroupInput(session$ns("age_group"), NULL,
+        em_check_filter(session$ns("age_group"), NULL,
           choices = choices,
           selected = selected
         )
@@ -336,7 +337,7 @@ model_run_module_server <- function(id, rv) {
       progress_message <- reactiveVal("")
 
       output$progress_text <- renderText({
-        progress_message()
+        em_tr(progress_message())
       })
 
       updateProgress <- function(value, message) {
@@ -375,7 +376,7 @@ model_run_module_server <- function(id, rv) {
         }
 
         if (nrow(data) == 0) {
-          shinyjs::html("progress-message", "Error: No data available after filtering")
+          shinyjs::html("progress-message", em_tr("Error: No data available after filtering"))
           shinyjs::delay(1500, {
             shinyjs::hide("progress-area")
             shinyjs::enable("run")
@@ -395,7 +396,7 @@ model_run_module_server <- function(id, rv) {
           if (!(m$label %in% selected_models)) next
 
           current_progress <- current_progress + progress_increment / 2
-          updateProgress(floor(current_progress), paste0("Running ", m$label, "..."))
+          updateProgress(floor(current_progress), sprintf(em_tr("Running %s..."), em_tr(m$label)))
           message("\n[INFO] Running ", m$label, "...")
           flush.console()
 
@@ -412,7 +413,7 @@ model_run_module_server <- function(id, rv) {
           })
 
           current_progress <- current_progress + progress_increment / 2
-          updateProgress(floor(current_progress), paste0(m$label, " completed"))
+          updateProgress(floor(current_progress), sprintf(em_tr("%s completed"), em_tr(m$label)))
         }
 
         updateProgress(95, "Processing results...")
@@ -447,20 +448,20 @@ model_run_module_server <- function(id, rv) {
             ok  <- model_succeeded(res)
             err <- attr(res, "error")
             status_html <- if (ok) {
-              "<span style='color:green; font-weight:bold;'>&#10003; Success</span>"
+              paste0("<span style='color:green; font-weight:bold;'>&#10003; ", em_tr("Success"), "</span>")
             } else if (!is.null(err)) {
               paste0(
-                "<span style='color:red; font-weight:bold;'>&#10007; Failed</span>",
+                paste0("<span style='color:red; font-weight:bold;'>&#10007; ", em_tr("Failed"), "</span>"),
                 "<div style='font-size:11px; color:#666; margin-top:4px;'>",
-                htmltools::htmlEscape(err),
+                htmltools::htmlEscape(em_tr(err)),
                 "</div>"
               )
             } else {
-              "<span style='color:red; font-weight:bold;'>&#10007; Failed</span>"
+              paste0("<span style='color:red; font-weight:bold;'>&#10007; ", em_tr("Failed"), "</span>")
             }
             paste(
               "<tr>",
-              "<td style='padding:8px; text-align:left; border:1px solid #ddd;'>", model_name, "</td>",
+              "<td style='padding:8px; text-align:left; border:1px solid #ddd;'>", em_tr(model_name), "</td>",
               "<td style='padding:8px; text-align:left; border:1px solid #ddd;'>", status_html, "</td>",
               "</tr>"
             )
@@ -468,26 +469,26 @@ model_run_module_server <- function(id, rv) {
           
           model_results_table <- paste(
             "<div style='text-align:center; margin-bottom:15px;'>",
-            "<span style='font-size:18px; font-weight:bold;'>", success_count, " of ", total_count, " models completed successfully</span>",
+            "<span style='font-size:18px; font-weight:bold;'>", sprintf(em_tr("%d of %d models completed successfully"), success_count, total_count), "</span>",
             "</div>",
             "<table style='width:100%; border-collapse:collapse; margin-bottom:15px;'>",
             "<tr style='background-color:#f2f2f2;'>",
-            "<th style='padding:8px; text-align:left; border:1px solid #ddd;'>Model</th>",
-            "<th style='padding:8px; text-align:center; border:1px solid #ddd;'>Status</th>",
+            paste0("<th style='padding:8px; text-align:left; border:1px solid #ddd;'>", em_tr("Model"), "</th>"),
+            paste0("<th style='padding:8px; text-align:center; border:1px solid #ddd;'>", em_tr("Status"), "</th>"),
             "</tr>",
             paste(model_status_rows, collapse=""),
             "</table>",
             "<div style='text-align:center; font-style:italic; color:#666;'>",
-            "This window will close automatically in 15 seconds.",
+            em_tr("This window will close automatically in 15 seconds."),
             "</div>"
           )
 
           shinyalert::shinyalert(
-            title = "<span style='color:#2c3e50;'>Model Execution Results</span>",
+            title = paste0("<span style='color:#2c3e50;'>", em_tr("Model Execution Results"), "</span>"),
             text = model_results_table,
             type = "success", # Or "info" if some failed
             html = TRUE,
-            confirmButtonText = "OK",
+            confirmButtonText = em_tr("OK"),
             timer = 15000,
             animation = TRUE,
             size = "m",
@@ -698,10 +699,10 @@ model_run_module_server <- function(id, rv) {
             rv$model_aic       <- dplyr::tibble()
             rv$best_model      <- NA_character_
              shinyalert::shinyalert(
-                title = "No Model Results",
-                text = "None of the selected models produced any output. Please check your data and model configurations.",
+                title = em_tr("No Model Results"),
+                text = em_tr("None of the selected models produced any output. Please check your data and model configurations."),
                 type = "warning",
-                confirmButtonText = "OK"
+                confirmButtonText = em_tr("OK")
             )
         }
         

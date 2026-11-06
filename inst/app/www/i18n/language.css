@@ -1,0 +1,16 @@
+.em-label > [lang="zh-CN"],
+html[lang="zh-CN"] .em-label > [lang="en"],
+html:not([lang="zh-CN"]) .em-chinese-only { display: none; }
+
+html[lang="zh-CN"] .em-label > [lang="zh-CN"] { display: inline; }
+
+#em-language-control {
+  display: flex;
+  align-items: center;
+  gap: .5em;
+  font-size: 14px;
+}
+.navbar-brand:has(#em-language-control) { padding-block: 8px; }
+#em-language-control label { margin: 0; font-weight: 500; }
+#em-language-control select { width: auto; min-width: 7em; height: 34px; }
+.em-report-language { display: block; margin: 0 0 .5em; color: #555; }

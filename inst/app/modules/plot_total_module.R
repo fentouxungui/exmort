@@ -1,3 +1,4 @@
+source_module("modules/interface_language.R")
 source_module("modules/cause_analysis.R")
 # --- 1. Load Libraries ---
 # Libraries are assumed to be loaded in app.R
@@ -60,7 +61,7 @@ plot_total_module_ui <- function(id) {
 # --- 3. Define Module Server ---
 plot_total_module_server <- function(id, rv) {
     moduleServer(id, function(input, output, session) {
-      output$analysis_context <- renderText(rv$data_description)
+      output$analysis_context <- renderText(em_context(rv))
         ns <- session$ns
 
         # --- Data Monitoring ---
@@ -80,7 +81,7 @@ plot_total_module_server <- function(id, rv) {
             if (is.null(rv$overall_summary) || nrow(rv$overall_summary) == 0) {
                 div(
                     style = "color: #888; font-style: italic; margin-bottom: 15px;",
-                    "Data is loading, please wait..."
+                    em_label("Data is loading, please wait...")
                 )
             } else {
                 # Data loaded, don't display anything
@@ -92,7 +93,7 @@ plot_total_module_server <- function(id, rv) {
             if (is.null(rv$overall_summary) || nrow(rv$overall_summary) == 0) {
                 div(
                     style = "text-align: center; margin-top: 100px;",
-                    h3("Data is loading, please wait..."),
+                    h3(em_label("Data is loading, please wait...")),
                     tags$div(
                         style = "margin: 20px auto; width: 50px; height: 50px; border: 5px solid #f3f3f3; border-top: 5px solid #3498db; border-radius: 50%; animation: spin 2s linear infinite;",
                         HTML("<style>@keyframes spin {0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); }}</style>")
@@ -121,7 +122,7 @@ plot_total_module_server <- function(id, rv) {
             message("plot_total_module: generating sex selector, options: ", paste(unique_sex, collapse = ", "))
 
             # Create selector
-            selectInput(ns("selected_sex"), "Select Sex:",
+            em_select_filter(ns("selected_sex"), "Select Sex:",
                 choices = unique_sex,
                 selected = if (length(unique_sex) > 0) unique_sex[1] else NULL,
                 multiple = FALSE
@@ -137,7 +138,7 @@ plot_total_module_server <- function(id, rv) {
             message("plot_total_module: generating age group selector, options: ", paste(unique_age_group, collapse = ", "))
 
             # Create selector
-            selectInput(ns("selected_age_group"), "Select Age Group:",
+            em_select_filter(ns("selected_age_group"), "Select Age Group:",
                 choices = unique_age_group,
                 selected = if (length(unique_age_group) > 0) unique_age_group[1] else NULL,
                 multiple = FALSE
@@ -153,7 +154,7 @@ plot_total_module_server <- function(id, rv) {
             message("plot_total_module: generating model selector, options: ", paste(unique_models, collapse = ", "))
 
             # Create selector
-            checkboxGroupInput(ns("selected_models"), "Select Models to Display:",
+            em_check_filter(ns("selected_models"), "Select Models to Display:",
                 choices = unique_models,
                 selected = unique_models
             )
@@ -197,7 +198,7 @@ plot_total_module_server <- function(id, rv) {
                 message("No data available for plotting")
                 return(plot_ly() %>%
                     add_annotations(
-                        text = "No data matching the selected filter criteria.",
+                        text = em_tr("No data matching the selected filter criteria."),
                         x = 0.5, y = 0.5, showarrow = FALSE
                     ))
             }
@@ -206,7 +207,7 @@ plot_total_module_server <- function(id, rv) {
                 message("Missing or invalid TOTAL_EXCESS column")
                 return(plot_ly() %>%
                     add_annotations(
-                        text = "Missing or invalid TOTAL_EXCESS column.",
+                        text = em_tr("Missing or invalid TOTAL_EXCESS column."),
                         x = 0.5, y = 0.5, showarrow = FALSE
                     ))
             }
@@ -215,7 +216,7 @@ plot_total_module_server <- function(id, rv) {
                 message("Missing or invalid Model column")
                 return(plot_ly() %>%
                     add_annotations(
-                        text = "Missing or invalid Model column.",
+                        text = em_tr("Missing or invalid Model column."),
                         x = 0.5, y = 0.5, showarrow = FALSE
                     ))
             }
@@ -247,7 +248,7 @@ plot_total_module_server <- function(id, rv) {
                     data = model_data,
                     x = ~Model,
                     y = ~TOTAL_EXCESS,
-                    name = model_name,
+                    name = em_tr(model_name),
                     marker = list(color = bar_color),
                     error_y = if (has_ci) {
                         list(
@@ -263,12 +264,12 @@ plot_total_module_server <- function(id, rv) {
                     },
                     hoverinfo = "text",
                     text = if (has_ci) {
-                        paste0("Model: ", model_name,
-                              "<br>Excess Deaths: ", round(model_data$TOTAL_EXCESS, 2),
-                              "<br>", if (is_cause_series(data)) "95% prediction interval: " else "95% CI: ", round(model_data$EXCESS_LOWER, 2), ", ", round(model_data$EXCESS_UPPER, 2))
+                        paste0(em_tr("Model: "), em_tr(model_name),
+                              em_tr("<br>Excess Deaths: "), round(model_data$TOTAL_EXCESS, 2),
+                              "<br>", if (is_cause_series(data)) em_tr("95% prediction interval: ") else em_tr("95% CI: "), round(model_data$EXCESS_LOWER, 2), ", ", round(model_data$EXCESS_UPPER, 2))
                     } else {
-                        paste("Model:", model_name,
-                              "<br>Excess Deaths:", round(model_data$TOTAL_EXCESS, 2))
+                        paste(em_tr("Model:"), em_tr(model_name),
+                              em_tr("<br>Excess Deaths:"), round(model_data$TOTAL_EXCESS, 2))
                     },
                     textposition = "none"
                 )
@@ -278,25 +279,26 @@ plot_total_module_server <- function(id, rv) {
             model_names <- unique(data$Model)
 
             # Set layout
-            plot_subtitle <- paste("Sex:", input$selected_sex, "| Age Group:", input$selected_age_group)
+            plot_subtitle <- paste(em_tr("Sex:"), em_stratum(input$selected_sex), em_tr("| Age Group:"), em_stratum(input$selected_age_group))
             if (is_cause_series(data)) plot_subtitle <- paste(htmltools::htmlEscape(paste(data$COUNTRY[1], data$CAUSE[1], sep = " | ")), plot_subtitle, sep = "<br>")
 
             p <- p %>% layout(
                 title = list(
-                    text = paste("Overall Excess Deaths -", plot_subtitle),
+                    text = paste(em_tr("Overall Excess Deaths -"), plot_subtitle),
                     font = list(size = 16)
                 ),
                 xaxis = list(
-                    title = "Model",
+                    title = em_tr("Model"),
                     tickangle = 0,
                     categoryorder = "array",
                     categoryarray = model_names,
+                    tickvals = model_names, ticktext = em_tr(model_names),
                     type = "category", # Ensure x-axis type is category
                     showgrid = FALSE, # Close grid lines
                     fixedrange = TRUE, # Fix x-axis range
                     rangeslider = FALSE # Disable range slider
                 ),
-                yaxis = list(title = "Excess Deaths"),
+                yaxis = list(title = em_tr("Excess Deaths")),
                 barmode = "group",
                 showlegend = TRUE,
                 legend = list(orientation = "h", y = -0.2),
@@ -313,7 +315,7 @@ plot_total_module_server <- function(id, rv) {
                 message("No data available for P-Score plotting")
                 return(plot_ly() %>%
                     add_annotations(
-                        text = "No data matching the selected filter criteria.",
+                        text = em_tr("No data matching the selected filter criteria."),
                         x = 0.5, y = 0.5, showarrow = FALSE
                     ))
             }
@@ -322,7 +324,7 @@ plot_total_module_server <- function(id, rv) {
             if (!"TOTAL_EXPECTED" %in% names(data) || !"TOTAL_EXCESS" %in% names(data) || all(is.na(data$TOTAL_EXPECTED)) || all(is.na(data$TOTAL_EXCESS))) {
                 return(plot_ly() %>%
                     add_annotations(
-                        text = "Missing or invalid columns required for P-Score calculation.",
+                        text = em_tr("Missing or invalid columns required for P-Score calculation."),
                         x = 0.5, y = 0.5, showarrow = FALSE
                     ))
             }
@@ -333,7 +335,7 @@ plot_total_module_server <- function(id, rv) {
                 message("No non-zero expected death rate data for P-Score")
                 return(plot_ly() %>%
                     add_annotations(
-                        text = "No data with non-zero expected death rates.",
+                        text = em_tr("No data with non-zero expected death rates."),
                         x = 0.5, y = 0.5, showarrow = FALSE
                     ))
             }
@@ -376,7 +378,7 @@ plot_total_module_server <- function(id, rv) {
                     data = model_data,
                     x = ~Model,
                     y = ~P_SCORE,
-                    name = model_name,
+                    name = em_tr(model_name),
                     marker = list(color = bar_color),
                     error_y = if (has_ci) {
                         list(
@@ -392,12 +394,12 @@ plot_total_module_server <- function(id, rv) {
                     },
                     hoverinfo = "text",
                     text = if (has_ci) {
-                        paste0("Model: ", model_name,
-                              "<br>P-Score: ", round(model_data$P_SCORE, 2), "%",
-                              "<br>95% CI: ", round(model_data$P_LOWER, 2), "%, ", round(model_data$P_UPPER, 2), "%")
+                        paste0(em_tr("Model: "), em_tr(model_name),
+                              em_tr("<br>P-Score: "), round(model_data$P_SCORE, 2), "%",
+                              em_tr("<br>95% CI: "), round(model_data$P_LOWER, 2), "%, ", round(model_data$P_UPPER, 2), "%")
                     } else {
-                        paste("Model:", model_name,
-                              "<br>P-Score:", round(model_data$P_SCORE, 2), "%")
+                        paste(em_tr("Model:"), em_tr(model_name),
+                              em_tr("<br>P-Score:"), round(model_data$P_SCORE, 2), "%")
                     },
                     textposition = "none"
                 )
@@ -407,26 +409,27 @@ plot_total_module_server <- function(id, rv) {
             model_names <- unique(data$Model)
 
             # Set layout
-            plot_subtitle <- paste("Sex:", input$selected_sex, "| Age Group:", input$selected_age_group)
+            plot_subtitle <- paste(em_tr("Sex:"), em_stratum(input$selected_sex), em_tr("| Age Group:"), em_stratum(input$selected_age_group))
             if (is_cause_series(data)) plot_subtitle <- paste(htmltools::htmlEscape(paste(data$COUNTRY[1], data$CAUSE[1], sep = " | ")), plot_subtitle, sep = "<br>")
 
             p <- p %>% layout(
                 title = list(
-                    text = paste("Overall P-Score (%) -", plot_subtitle),
+                    text = paste(em_tr("Overall P-Score (%) -"), plot_subtitle),
                     font = list(size = 16)
                 ),
                 xaxis = list(
-                    title = "Model",
+                    title = em_tr("Model"),
                     tickangle = 0,
                     categoryorder = "array",
                     categoryarray = model_names,
+                    tickvals = model_names, ticktext = em_tr(model_names),
                     type = "category", # Ensure x-axis type is category
                     showgrid = FALSE, # Close grid lines
                     fixedrange = TRUE, # Fix x-axis range
                     rangeslider = FALSE # Disable range slider
                 ),
                 yaxis = list(
-                    title = "P-Score (%)",
+                    title = em_tr("P-Score (%)"),
                     tickformat = ".1f"
                 ),
                 barmode = "group",
@@ -499,7 +502,7 @@ plot_total_module_server <- function(id, rv) {
                 temp_file <- tempfile(fileext = ".pdf")
 
                 # Open PDF device
-                pdf(temp_file, width = 10, height = 7)
+                em_pdf(temp_file, width = 10, height = 7)
 
                 # Create ggplot version of the chart for PDF export
                 data <- filtered_overall_data()
@@ -507,7 +510,7 @@ plot_total_module_server <- function(id, rv) {
                 if (!is.null(data) && nrow(data) > 0) {
                     has_ci <- "EXCESS_LOWER" %in% names(data) && "EXCESS_UPPER" %in% names(data)
 
-                    plot_subtitle <- paste("Sex:", input$selected_sex, "| Age Group:", input$selected_age_group)
+                    plot_subtitle <- paste(em_tr("Sex:"), em_stratum(input$selected_sex), em_tr("| Age Group:"), em_stratum(input$selected_age_group))
                     if (is_cause_series(data)) plot_subtitle <- paste(stringr::str_wrap(paste(data$COUNTRY[1], data$CAUSE[1], sep = " | "), 85), plot_subtitle, sep = "\n")
 
                     p <- ggplot(data, aes(x = Model, y = TOTAL_EXCESS, fill = Model)) +
@@ -522,10 +525,10 @@ plot_total_module_server <- function(id, rv) {
                         } +
                         scale_fill_manual(values = get_model_colors()) +
                         labs(
-                            title = "Overall Excess Deaths",
+                            title = em_tr("Overall Excess Deaths"),
                             subtitle = plot_subtitle,
-                            x = "Model",
-                            y = "Excess Deaths"
+                            x = em_tr("Model"),
+                            y = em_tr("Excess Deaths")
                         ) +
                         theme_wpro()
 
@@ -533,7 +536,7 @@ plot_total_module_server <- function(id, rv) {
                 } else {
                     # Create empty chart
                     p <- ggplot() +
-                        annotate("text", x = 0.5, y = 0.5, label = "No data matching the selected filter criteria.") +
+                        annotate("text", x = 0.5, y = 0.5, label = em_tr("No data matching the selected filter criteria.")) +
                         theme_void()
                     print(p)
                 }
@@ -559,7 +562,7 @@ plot_total_module_server <- function(id, rv) {
                 temp_file <- tempfile(fileext = ".pdf")
 
                 # Open PDF device
-                pdf(temp_file, width = 10, height = 7)
+                em_pdf(temp_file, width = 10, height = 7)
 
                 # Create ggplot version of the chart for PDF export
                 data <- filtered_overall_data()
@@ -580,7 +583,7 @@ plot_total_module_server <- function(id, rv) {
                             )
                         }
 
-                        plot_subtitle <- paste("Sex:", input$selected_sex, "| Age Group:", input$selected_age_group)
+                        plot_subtitle <- paste(em_tr("Sex:"), em_stratum(input$selected_sex), em_tr("| Age Group:"), em_stratum(input$selected_age_group))
                         if (is_cause_series(data)) plot_subtitle <- paste(stringr::str_wrap(paste(data$COUNTRY[1], data$CAUSE[1], sep = " | "), 85), plot_subtitle, sep = "\n")
 
                         p <- ggplot(data, aes(x = Model, y = P_SCORE, fill = Model)) +
@@ -595,10 +598,10 @@ plot_total_module_server <- function(id, rv) {
                             } +
                             scale_fill_manual(values = get_model_colors()) +
                             labs(
-                                title = "Overall P-Score (%)",
+                                title = em_tr("Overall P-Score (%)"),
                                 subtitle = plot_subtitle,
-                                x = "Model",
-                                y = "P-Score (%)"
+                                x = em_tr("Model"),
+                                y = em_tr("P-Score (%)")
                             ) +
                             theme_wpro()
 
@@ -606,14 +609,14 @@ plot_total_module_server <- function(id, rv) {
                     } else {
                         # Create empty chart
                         p <- ggplot() +
-                            annotate("text", x = 0.5, y = 0.5, label = "No data with non-zero expected death rates.") +
+                            annotate("text", x = 0.5, y = 0.5, label = em_tr("No data with non-zero expected death rates.")) +
                             theme_void()
                         print(p)
                     }
                 } else {
                     # Create empty chart
                     p <- ggplot() +
-                        annotate("text", x = 0.5, y = 0.5, label = "No data matching the selected filter criteria or missing required columns.") +
+                        annotate("text", x = 0.5, y = 0.5, label = em_tr("No data matching the selected filter criteria or missing required columns.")) +
                         theme_void()
                     print(p)
                 }
